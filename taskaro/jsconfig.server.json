@@ -1,0 +1,12 @@
+{
+    "extends": "./jsconfig.json",
+    "compilerOptions": {
+        "module": "CommonJS",
+        "target": "ES2017",
+        "outDir": "./dist",
+        "moduleResolution": "node",
+        "strict": true,
+        "noEmit": false,
+        "isolatedModules": true
+    }
+}

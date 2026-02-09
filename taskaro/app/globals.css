@@ -1,0 +1,244 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+html {
+  /* Font */
+  --font-inter:
+    "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* Colors - light mode */
+  --color-bg: #ffffff;
+  --card-bg: #dcdcdc;
+  --hover-card-bg: #e5e5e5;
+  --color-text: #111827;
+  --color-content: #242424;
+  --color-desc: #3a3a3a;
+  --color-primary: #3b82f6;
+  --color-secondary: #2563eb;
+  --color-accent: #f59e0b;
+  --color-border: #e5e7eb;
+}
+
+/* Dark mode */
+html.dark {
+  --color-bg: #000000;
+  --card-bg: #181818;
+  --hover-card-bg: #131313;
+  --color-text: #dfdfd6;
+  --color-content: #cdcbcb;
+  --color-desc: #b6b6b6;
+  --color-primary: #3b82f6;
+  --color-secondary: #2563eb;
+  --color-accent: #fbbf24;
+  --color-border: #98989f;
+}
+
+body {
+  font-family: var(--font-inter);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+}
+
+.header {
+  font-weight: bold;
+  text-align: start;
+}
+
+.description {
+  font-weight: normal;
+  text-align: start;
+}
+
+.swiper-pagination {
+  display: none !important;
+}
+
+.mySwiper1 {
+  position: absolute !important;
+  width: 100%;
+  top: -90px;
+}
+
+.mySwiper1 > .swiper-wrapper > .swiper-slide {
+  margin-right: -10px !important;
+}
+
+.swiper-button-prev,
+.swiper-button-next {
+  display: none !important;
+}
+
+.custom-prev {
+  left: 46%;
+  transform: translateX(-50%) !important;
+}
+
+.custom-next {
+  left: 54%;
+  transform: translateX(-50%) !important;
+}
+
+.custom-next,
+.custom-prev {
+  bottom: 55%;
+  z-index: 100;
+  background-color: #4f4f4f;
+  padding-inline: 20px;
+  border-radius: 50%;
+}
+
+.btn-loader {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  background: #242424;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-origin: 0 0;
+  animation: rotateDot 2s infinite ease-in-out;
+}
+
+/* Custom start angles for each dot */
+.dot:nth-child(1) {
+  --angle: 0deg;
+  animation-delay: 0s;
+}
+.dot:nth-child(2) {
+  --angle: 22.5deg;
+  animation-delay: 0.4s;
+}
+.dot:nth-child(3) {
+  --angle: 45deg;
+  animation-delay: 0.2s;
+}
+.dot:nth-child(4) {
+  --angle: 67.5deg;
+  animation-delay: 0.3s;
+}
+.dot:nth-child(5) {
+  --angle: 90deg;
+  animation-delay: 0.4s;
+}
+.dot:nth-child(6) {
+  --angle: 112.5deg;
+  animation-delay: 0.5s;
+}
+.dot:nth-child(7) {
+  --angle: 135deg;
+  animation-delay: 0.6s;
+}
+.dot:nth-child(8) {
+  --angle: 157.5deg;
+  animation-delay: 0.7s;
+}
+.dot:nth-child(9) {
+  --angle: 180deg;
+  animation-delay: 0.8s;
+}
+.dot:nth-child(10) {
+  --angle: 202.5deg;
+  animation-delay: 0.9s;
+}
+.dot:nth-child(11) {
+  --angle: 225deg;
+  animation-delay: 1s;
+}
+
+@keyframes rotateDot {
+  0% {
+    transform: rotate(var(--angle)) translateX(40px);
+  }
+  49.9% {
+    transform: rotate(calc(var(--angle) + 180deg)) translateX(40px);
+  }
+  50% {
+    transform: rotate(calc(var(--angle) + 180deg)) translateX(40px);
+  }
+  100% {
+    transform: rotate(calc(var(--angle) + 360deg)) translateX(40px);
+  }
+}
+
+.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+
+.react-calendar {
+  width: 100% !important;
+  background: var(--card-bg) !important;
+  color: var(--color-text) !important;
+}
+
+.react-calendar__navigation button:enabled:focus,
+.react-calendar__tile:enabled:focus {
+  background: #1a4e33 !important;
+  color: #ffffff !important;
+}
+
+
+.react-calendar__navigation button:disabled,
+.react-calendar__tile:disabled {
+  background-color: var(--color-desc) !important;
+  color: #ffffff !important;
+}
+
+.react-calendar__tile--now {
+  background: #4d023b !important;
+  color: #ffffff !important;
+}
+
+.react-calendar__tile:enabled:hover,
+.react-calendar__navigation__arrow:enabled:hover,
+.react-calendar__navigation__label:enabled:hover {
+  background: var(--hover-card-bg) !important;
+}
+
+
+
+/* ===== Dark Theme Scrollbar ===== */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 #0f172a;
+}
+
+/* Chrome, Edge, Safari */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a; /* dark bg */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #4b5563; /* thumb */
+  border-radius: 999px;
+  border: 2px solid #0f172a;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280;
+}
+
