@@ -1,10 +1,12 @@
 const cron = require("node-cron");
 const Task = require("../models/Task");
 const Notification = require("../models/Notification");
+const User = require("../models/User");
+const sendPush = require("../services/push.service");
 
 const startNotificationCron = () => {
   // ⏰ Runs every 1 hour
-  cron.schedule("0 * * * *", async () => {
+  cron.schedule("* * * * *", async () => {
     console.log("⏰ Notification cron running");
 
     const now = new Date();
@@ -36,6 +38,19 @@ const startNotificationCron = () => {
           message: `Task "${task.title}" is due tomorrow`,
           type: "DUE_TOMORROW",
         });
+
+        // 🔥 PUSH
+        const user = await User.findById(task.assignedTo).lean();
+
+        await sendPush({
+          token: user?.fcmToken,
+          title: "⏰ Task due tomorrow",
+          body: task.title,
+          data: {
+            taskId: task._id.toString(),
+            type: "DUE_TOMORROW",
+          },
+        });
       }
     }
 
@@ -59,6 +74,18 @@ const startNotificationCron = () => {
           message: `Task "${task.title}" is overdue`,
           type: "OVERDUE",
         });
+
+        const user = await User.findById(task.assignedTo).lean();
+
+        const data = await sendPush({
+          token: user?.fcmToken,
+          title: "⚠️ Task overdue",
+          body: task.title,
+          data: {
+            taskId: task._id.toString(),
+            type: "OVERDUE",
+          },
+        });        
       }
     }
 

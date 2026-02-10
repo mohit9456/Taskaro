@@ -21,6 +21,7 @@
     "bcryptjs": "^3.0.3",
     "crypto": "^1.0.1",
     "dayjs": "^1.11.19",
+    "firebase": "^12.9.0",
     "framer-motion": "^12.23.3",
     "fs": "^0.0.1-security",
     "jsonwebtoken": "^9.0.2",

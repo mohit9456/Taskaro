@@ -10,6 +10,10 @@ module.exports = mongoose.model(
         ref: "User",
         required: true,
       },
+      taskId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Task",
+      },
 
       title: String,
       message: String,

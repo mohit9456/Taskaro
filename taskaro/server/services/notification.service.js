@@ -24,7 +24,6 @@ export async function getNotificationService(email) {
   return notifications;
 }
 
-
 /**
  * Update notifications for a user by email
  */
@@ -41,8 +40,34 @@ export async function updateNotifcationService(email) {
 
   const updatedNotifications = await Notification.updateMany(
     { userId: user._id, isRead: false },
-    { $set: { isRead: true } }
+    { $set: { isRead: true } },
   );
 
   return updatedNotifications;
+}
+
+//  genrate FCM Token of Specific User
+
+export async function generateToken({ email, token }) {
+  if (!email) {
+    throw { message: "Email is required", status: 400 };
+  }
+  if (!token) {
+    throw { message: "Token is missing", status: 400 };
+  }
+
+  const user = await User.findOne({ email }).select("_id");
+
+  if (!user) {
+    throw { message: "User not found", status: 404 };
+  }
+
+  await User.findByIdAndUpdate(
+    { _id: user?._id },
+    {
+      fcmToken: token,
+    },
+  );
+
+  return;
 }
