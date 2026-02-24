@@ -4,13 +4,16 @@ const Notification = require("../models/Notification");
 const User = require("../models/User");
 const sendPush = require("../services/push.service");
 
+const { groupByUser, getOverdueStage } = require("../utils/notificationHelper");
+const { dueTomorrowText, overdueText } = require("../utils/notificationText");
+
 const startNotificationCron = () => {
-  // ⏰ Runs every 1 hour
-  cron.schedule("* * * * *", async () => {
-    console.log("⏰ Notification cron running");
+  cron.schedule("0 * * * *", async () => {
+    console.log("⏰ Notification cron started");
 
     const now = new Date();
 
+    // ---------------- DUE TOMORROW ----------------
     const tomorrowStart = new Date(now);
     tomorrowStart.setDate(now.getDate() + 1);
     tomorrowStart.setHours(0, 0, 0, 0);
@@ -18,75 +21,94 @@ const startNotificationCron = () => {
     const tomorrowEnd = new Date(tomorrowStart);
     tomorrowEnd.setHours(23, 59, 59, 999);
 
-    // 🔔 Due Tomorrow
     const dueTomorrowTasks = await Task.find({
       dueDate: { $gte: tomorrowStart, $lte: tomorrowEnd },
       status: { $ne: "completed" },
     }).lean();
 
-    for (const task of dueTomorrowTasks) {
+    const dueTomorrowByUser = groupByUser(dueTomorrowTasks);
+
+    for (const userId in dueTomorrowByUser) {
+      const tasks = dueTomorrowByUser[userId];
+
       const exists = await Notification.exists({
-        taskId: task._id,
+        userId,
         type: "DUE_TOMORROW",
       });
 
-      if (!exists) {
-        await Notification.create({
-          userId: task.assignedTo,
-          taskId: task._id,
-          title: "Task due tomorrow",
-          message: `Task "${task.title}" is due tomorrow`,
+      if (exists) continue;
+
+      const message = dueTomorrowText(tasks.length);
+
+      await Notification.create({
+        userId,
+        title: "⏳ Tasks due tomorrow",
+        message,
+        type: "DUE_TOMORROW",
+      });
+
+      const user = await User.findById(userId).lean();
+
+      await sendPush({
+        token: user?.fcmToken,
+        title: "⏳ Reminder",
+        body: message,
+        data: {
           type: "DUE_TOMORROW",
-        });
-
-        // 🔥 PUSH
-        const user = await User.findById(task.assignedTo).lean();
-
-        await sendPush({
-          token: user?.fcmToken,
-          title: "⏰ Task due tomorrow",
-          body: task.title,
-          data: {
-            taskId: task._id.toString(),
-            type: "DUE_TOMORROW",
-          },
-        });
-      }
+          clickUrl: "/dashboard/my-tasks",
+        },
+      });
     }
 
-    // ⚠️ Overdue
+    // ---------------- OVERDUE ----------------
     const overdueTasks = await Task.find({
       dueDate: { $lt: now },
       status: { $ne: "completed" },
     }).lean();
 
-    for (const task of overdueTasks) {
+    const overdueByUser = groupByUser(overdueTasks);
+
+    for (const userId in overdueByUser) {
+      const tasks = overdueByUser[userId];
+
+      const oldest = tasks.reduce((min, t) =>
+        t.dueDate < min.dueDate ? t : min,
+      );
+
+      const days = Math.floor(
+        (now - new Date(oldest.dueDate)) / (1000 * 60 * 60 * 24),
+      );
+
+      const stage = getOverdueStage(days);
+      if (!stage) continue;
+
       const exists = await Notification.exists({
-        taskId: task._id,
-        type: "OVERDUE",
+        userId,
+        type: stage,
       });
 
-      if (!exists) {
-        await Notification.create({
-          userId: task.assignedTo,
-          taskId: task._id,
-          title: "Task overdue",
-          message: `Task "${task.title}" is overdue`,
-          type: "OVERDUE",
-        });
+      if (exists) continue;
 
-        const user = await User.findById(task.assignedTo).lean();
+      const message = overdueText(tasks.length, days);
 
-        const data = await sendPush({
-          token: user?.fcmToken,
-          title: "⚠️ Task overdue",
-          body: task.title,
-          data: {
-            taskId: task._id.toString(),
-            type: "OVERDUE",
-          },
-        });        
-      }
+      await Notification.create({
+        userId,
+        title: "⚠️ Overdue tasks",
+        message,
+        type: stage,
+      });
+
+      const user = await User.findById(userId).lean();
+
+      await sendPush({
+        token: user?.fcmToken,
+        title: "⚠️ Action needed",
+        body: message,
+        data: {
+          type: stage,
+          clickUrl: "/dashboard/my-tasks",
+        },
+      });
     }
 
     console.log("✅ Notification cron completed");

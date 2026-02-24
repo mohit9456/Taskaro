@@ -2,218 +2,161 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
-import { HiChartBar, HiCheckBadge, HiOutlineArchiveBox } from "react-icons/hi2";
+import{FaCheckSquare} from "react-icons/fa";
+import{MdStackedBarChart} from "react-icons/md";
 import {
-  LuBell,
-  LuCalendar,
-  LuCrown,
   LuLayoutDashboard,
-  LuMenu,
   LuPlus,
-  LuUsers,
+  LuCalendar,
+  LuBell,
+  LuTrash2,
+  LuMenu,
   LuX,
+  LuCrown,
+  LuDumbbell,
+  LuAlarmClock,
+  LuDroplets,
+  LuRepeat,
+  LuUsers,
 } from "react-icons/lu";
 
 const DashboardSidebar = () => {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [openLock, setOpenLock] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activePage, setActivePage] = useState(""); // Active page state
+  const [active, setActive] = useState("");
 
   useEffect(() => {
-    if (pathname === "/dashboard") {
-      setActivePage("dashboard");
-    } else {
-      const key = pathname.split("/").filter(Boolean)[1];
-      if (key) {
-        setActivePage(key);
-      }
-    }
-  }, []);
+    if (pathname === "/dashboard") setActive("dashboard");
+    else setActive(pathname.split("/")[2]);
+  }, [pathname]);
 
-  const handleLockedClick = (key) => {
-    setOpenLock(openLock === key ? null : key);
-  };
-
-  const handleClick = (key) => {
-    setActivePage(key);
+  const go = (key) => {
+    setActive(key);
     setSidebarOpen(false);
-    if (key === "dashboard") {
-      router.push(`/${key}`);
-    } else {
-      router.push(`/dashboard/${key}`);
-    }
+    key === "dashboard"
+      ? router.push("/dashboard")
+      : router.push(`/dashboard/${key}`);
   };
 
   return (
-    <div>
-      {/* MOBILE SIDEBAR TOGGLE */}
-      <div className="md:hidden fixed top-26 right-4 z-50">
+    <>
+      {/* MOBILE TOGGLE */}
+      <div className="md:hidden fixed top-24 right-4 z-50">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="bg-(--color-bg) p-2 rounded-lg shadow"
+          className="p-2 rounded-lg bg-(--color-bg) shadow"
         >
-          {sidebarOpen ? (
-            <LuX size={20} color="var(--color-desc)" />
-          ) : (
-            <LuMenu size={20} color="var(--color-desc)" />
-          )}
+          {sidebarOpen ? <LuX size={20} /> : <LuMenu size={20} />}
         </button>
       </div>
 
       {/* SIDEBAR */}
       <aside
-        className={`w-64 h-screen bg-(--color-bg) border-r px-4 py-6 
-  fixed md:relative z-40 transform
-  ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-  md:translate-x-0 transition-transform duration-300 
-  md:block overflow-y-auto`}
+        className={`fixed md:relative z-40 h-screen w-64 bg-(--color-bg) border-r px-4 py-6
+        transform transition-transform duration-300
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        md:translate-x-0 overflow-y-auto`}
       >
-        <h2 className="text-2xl font-bold mb-8">Taskaro</h2>
+        {/* LOGO */}
+        <h1 className="text-2xl font-bold mb-8">Taskaro</h1>
 
-        <nav className="space-y-2">
-          <SidebarItem
-            icon={<LuLayoutDashboard />}
-            label="Dashboard"
-            active={activePage === "dashboard"}
-            onClick={() => handleClick("dashboard")}
-          />
-          <SidebarItem
-            icon={<HiCheckBadge />}
-            label="My Tasks"
-            active={activePage === "my-tasks"}
-            onClick={() => handleClick("my-tasks")}
-          />
-          <SidebarItem
-            icon={<LuPlus />}
-            label="Create Task"
-            active={activePage === "create-task"}
-            onClick={() => handleClick("create-task")}
-          />
-          <SidebarItem
-            icon={<LuCalendar />}
-            label="Calendar"
-            active={activePage === "calendar"}
-            onClick={() => handleClick("calendar")}
-          />
-          <SidebarItem
-            icon={<HiChartBar />}
-            label="Reports"
-            active={activePage === "reports"}
-            onClick={() => handleClick("reports")}
-          />
-          {/* <SidebarItem
-            icon={<LuSettings />}
-            label="Settings"
-            active={activePage === "settings"}
-            onClick={() => setActivePage("settings")}
-          /> */}
-          <SidebarItem
-            icon={<LuBell />}
-            label="Notifications"
-            active={activePage === "notification"}
-            onClick={() => handleClick("notification")}
-          />
-          <SidebarItem
-            icon={<HiOutlineArchiveBox />}
-            label="Trash"
-            active={activePage === "trash"}
-            onClick={() => handleClick("trash")}
-          />
+        {/* ===== CORE ===== */}
+        <Section title="Core">
+          <Item icon={<LuLayoutDashboard />} label="Dashboard" active={active==="dashboard"} onClick={()=>go("dashboard")} />
+          <Item icon={<FaCheckSquare />} label="My Tasks" active={active==="my-tasks"} onClick={()=>go("my-tasks")} />
+          <Item icon={<LuPlus />} label="Create Task" active={active==="create-task"} onClick={()=>go("create-task")} />
+          <Item icon={<LuCalendar />} label="Calendar" active={active==="calendar"} onClick={()=>go("calendar")} />
+        </Section>
 
-          <LockedItem
-            label="Team"
-            open={openLock === "team"}
-            onClick={() => handleLockedClick("team")}
-            router={router}
-          />
+        {/* ===== LIFE TOOLS ===== */}
+        <Section title="Life Tools">
+          <Item icon={<LuAlarmClock />} label="Smart Alarms" badge="NEW" active={active==="alarms"} onClick={()=>go("smart-alarm")} />
+          <Item icon={<LuDumbbell />} label="Gym Tracker" badge="🔥" active={active==="gym"} onClick={()=>go("gym")} />
+          <Item icon={<LuDroplets />} label="Water Tracker" active={active==="water"} onClick={()=>go("water")} />
+          <Item icon={<LuRepeat />} label="Habits" active={active==="habits"} onClick={()=>go("habits")} />
+        </Section>
 
-          <LockedItem
-            label="Invite Members"
-            open={openLock === "invite"}
-            onClick={() => handleLockedClick("invite")}
-            router={router}
-          />
-        </nav>
+        {/* ===== INSIGHTS ===== */}
+        <Section title="Insights">
+          <Item icon={<MdStackedBarChart />} label="Reports" active={active==="reports"} onClick={()=>go("reports")} />
+          <Item icon={<LuBell />} label="Notifications" active={active==="notification"} onClick={()=>go("notification")} />
+          <Item icon={<LuTrash2 />} label="Trash" active={active==="trash"} onClick={()=>go("trash")} />
+        </Section>
 
-        {/* UPGRADE CARD */}
+        {/* ===== PRO ===== */}
+        <Section title="Team (Pro)">
+          <LockedItem label="Team Workspace" />
+          <LockedItem label="Invite Members" />
+        </Section>
+
+        {/* ===== UPGRADE CARD ===== */}
         <div className="mt-10 rounded-xl bg-linear-to-br from-yellow-400 to-orange-500 p-4 text-white">
-          <div className="flex items-center gap-2 mb-2">
-            <LuCrown size={18} />
+          <div className="flex items-center gap-2 mb-1">
+            <LuCrown />
             <h3 className="font-semibold">Upgrade to Pro</h3>
           </div>
           <p className="text-sm opacity-90">
-            Unlock team collaboration & advanced features.
+            Advanced analytics, team features & smart reminders.
           </p>
           <button
             onClick={() => router.push("/pricing")}
-            className="mt-3 w-full bg-white text-black py-2 rounded-lg text-sm font-medium cursor-pointer"
+            className="mt-3 w-full bg-white text-black py-2 rounded-lg text-sm font-medium"
           >
             Upgrade Now
           </button>
         </div>
       </aside>
 
-      {/* OVERLAY FOR MOBILE */}
+      {/* OVERLAY */}
       {sidebarOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
           onClick={() => setSidebarOpen(false)}
-        ></div>
+        />
       )}
-    </div>
+    </>
   );
 };
 
 export default DashboardSidebar;
 
-/* ------------------ COMPONENTS ------------------ */
+/* ---------------- COMPONENTS ---------------- */
 
-function SidebarItem({ icon, label, active, onClick }) {
-  return (
-    <div
-      onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
-        active
-          ? "bg-blue-100 text-blue-600"
-          : "hover:bg-gray-100 dark:hover:bg-gray-900"
-      }`}
-    >
+const Section = ({ title, children }) => (
+  <div className="mb-6">
+    <p className="text-xs uppercase tracking-wider text-gray-400 mb-2">
+      {title}
+    </p>
+    <div className="space-y-1">{children}</div>
+  </div>
+);
+
+const Item = ({ icon, label, onClick, active, badge }) => (
+  <div
+    onClick={onClick}
+    className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer
+    ${active ? "bg-blue-100 text-blue-600" : "hover:bg-gray-100 dark:hover:bg-gray-900"}`}
+  >
+    <div className="flex items-center gap-3">
       {icon}
       <span>{label}</span>
     </div>
-  );
-}
+    {badge && (
+      <span className="text-xs px-2 py-0.5 rounded bg-blue-500 text-white">
+        {badge}
+      </span>
+    )}
+  </div>
+);
 
-function LockedItem({ label, open, onClick, router }) {
-  return (
-    <div>
-      <div
-        onClick={onClick}
-        className="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-400 dark:text-gray-600"
-      >
-        <div className="flex items-center gap-3">
-          <LuUsers />
-          <span>{label}</span>
-        </div>
-        <LuCrown size={16} className="text-yellow-500" />
-      </div>
-
-      {open && (
-        <div className="ml-10 mt-2 rounded-lg border bg-yellow-50 dark:bg-yellow-200 p-3">
-          <p className="text-sm text-yellow-800 dark:text-yellow-900">
-            This feature is available on Pro plan.
-          </p>
-          <button
-            onClick={() => router.push("/pricing")}
-            className="mt-2 text-sm font-medium text-blue-600 hover:underline cursor-pointer"
-          >
-            Upgrade Now →
-          </button>
-        </div>
-      )}
+const LockedItem = ({ label }) => (
+  <div className="flex items-center justify-between px-3 py-2 rounded-lg text-gray-400 cursor-not-allowed">
+    <div className="flex items-center gap-3">
+      <LuUsers />
+      <span>{label}</span>
     </div>
-  );
-}
+    <LuCrown className="text-yellow-500" />
+  </div>
+);
