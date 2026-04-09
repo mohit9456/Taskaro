@@ -19,6 +19,15 @@ import { useSession } from "next-auth/react";
 import { protectedApiGet } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
+function EmptyChart({ message }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-75 text-(--color-desc)">
+      <div className="text-4xl mb-2">📊</div>
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
 const DashboardContent = () => {
   const { data } = useSession();
 
@@ -142,6 +151,9 @@ const DashboardContent = () => {
     "Prioritize tasks with high impact first.",
   ];
 
+  const hasBarData = chartData.length > 0;
+  const hasPieData = pieData.some((item) => item.value > 0);
+
   return (
     <div className="space-y-8">
       {/* Personalized Welcome Section */}
@@ -232,21 +244,20 @@ const DashboardContent = () => {
           <h2 className="text-lg font-semibold mb-4">
             Task Completion Over Time
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--color-bg)",
-                  borderRadius: "8px",
-                }}
-              />
-              <Bar dataKey="completed" fill="#10B981" name="Completed" />
-              <Bar dataKey="pending" fill="#F59E0B" name="Pending" />
-            </BarChart>
-          </ResponsiveContainer>
+          {hasBarData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="completed" fill="#10B981" />
+                <Bar dataKey="pending" fill="#F59E0B" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyChart message="No task activity for selected period" />
+          )}
         </div>
 
         {/* Pie Chart: Task Status Distribution */}
@@ -254,26 +265,29 @@ const DashboardContent = () => {
           <h2 className="text-lg font-semibold mb-4">
             Task Status Distribution
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-                label={({ name, percent }) =>
-                  `${name} ${(percent * 100).toFixed(0)}%`
-                }
-              >
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          {hasPieData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                  dataKey="value"
+                  label={({ name, percent }) =>
+                    `${name} ${(percent * 100).toFixed(0)}%`
+                  }
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell key={index} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyChart message="No tasks available yet" />
+          )}
         </div>
       </div>
 
@@ -281,35 +295,36 @@ const DashboardContent = () => {
       <div className="bg-(--card-bg) rounded-xl shadow p-6">
         <h2 className="text-lg font-semibold mb-4">Recent Tasks</h2>
         <ul className="space-y-3">
-          {recentTasks.map((task) => (
-            <li
-              key={task.id}
-              className="flex items-center justify-between border p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-950 cursor-pointer transition"
-              onClick={() => alert(`Edit task: ${task.title}`)} // Interactive: click to edit
-            >
-              <div>
-                <span
-                  className={
-                    task.status === "DONE" ? "line-through text-gray-500" : ""
-                  }
-                >
-                  {task.title}
-                </span>
-                <div className="text-xs text-gray-500 mt-1">
-                  Priority: {task.priority} | Due: {task.dueDate}
-                </div>
-              </div>
-              <span
-                className={`px-2 py-1 text-xs rounded ${
-                  task.status === "DONE"
-                    ? "bg-green-100 text-green-800"
-                    : "bg-yellow-100 text-yellow-800"
-                }`}
+          {recentTasks.length > 0 &&
+            recentTasks.map((task) => (
+              <li
+                key={task._id}
+                className="flex items-center justify-between border p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-950 cursor-pointer transition"
+                onClick={() => alert(`Edit task: ${task.title}`)} // Interactive: click to edit
               >
-                {task.status}
-              </span>
-            </li>
-          ))}
+                <div>
+                  <span
+                    className={
+                      task.status === "DONE" ? "line-through text-gray-500" : ""
+                    }
+                  >
+                    {task.title}
+                  </span>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Priority: {task.priority} | Due: {task.dueDate}
+                  </div>
+                </div>
+                <span
+                  className={`px-2 py-1 text-xs rounded ${
+                    task.status === "DONE"
+                      ? "bg-green-100 text-green-800"
+                      : "bg-yellow-100 text-yellow-800"
+                  }`}
+                >
+                  {task.status}
+                </span>
+              </li>
+            ))}
         </ul>
         <button
           onClick={() => router.push("/dashboard/my-tasks")}

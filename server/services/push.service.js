@@ -9,8 +9,12 @@ const sendPush = async ({ token, title, body, data = {} }) => {
     data: {
       title: String(title),
       body: String(body),
-      clickUrl: data.clickUrl || "/dashboard",
-      type: data.type || "",
+      // clickUrl: data.clickUrl || "/dashboard",
+      // type: data.type || "",
+      // ✅ ALL CUSTOM DATA PASS
+      ...Object.fromEntries(
+        Object.entries(data).map(([k, v]) => [k, String(v)]),
+      ),
     },
 
     android: {

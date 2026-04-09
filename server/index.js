@@ -5,6 +5,7 @@ const http = require("http");
 
 const connectDb = require("./config/db");
 const startNotificationCron = require("./cron/notification.cron.js");
+const startAlarmCron = require("./cron/alarm.cron.js");
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ const startServer = async () => {
 
   // 🚀 Start cron AFTER DB connection
   startNotificationCron();
+  startAlarmCron();
 
   const server = http.createServer(app);
   const PORT = process.env.PORT || 5000;

@@ -242,3 +242,8 @@ body {
   background-color: #6b7280;
 }
 
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}

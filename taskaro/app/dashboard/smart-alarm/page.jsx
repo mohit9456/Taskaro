@@ -1,20 +1,26 @@
 "use client";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import AlarmCard from "@/app/components/smartAlarm/AlarmCard";
 import CreateAlarm from "@/app/components/smartAlarm/CreateAlarm";
-
-const mockAlarms = [
-  {
-    time: "06:00 AM",
-    title: "Gym Time",
-    repeat: "Mon • Wed • Fri",
-    emoji: "🏋️",
-    color: "bg-red-100 text-red-600",
-    message: "No zero days 💪",
-  },
-];
+import { protectedApiGet } from "@/lib/api";
+import Loader from "@/components/Loader";
 
 const SmartAlarmPage = () => {
+  const [alarms, setAlarms] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    protectedApiGet("/secure/alarm/list")
+      .then((data) => setAlarms(data?.alarms ?? []))
+      .catch((err) => {
+        console.log(err, "error");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold">⏰ Smart Alarm</h1>
@@ -22,9 +28,15 @@ const SmartAlarmPage = () => {
       {/* UPCOMING */}
       <div className="space-y-3">
         <h2 className="font-medium">Upcoming Alarms</h2>
-        {mockAlarms.map((a, i) => (
-          <AlarmCard key={i} alarm={a} />
-        ))}
+        {loading ? (
+          <div className="w-fulll flex justify-center items-center">
+            <Loader />
+          </div>
+        ) : alarms.length === 0 ? (
+          <p className="w-full text-center font-semibold text-2xl">No upcoming alarms Found !</p>
+        ) : (
+          alarms.map((a, i) => <AlarmCard key={i} alarm={a} />)
+        )}
       </div>
 
       {/* CREATE */}
