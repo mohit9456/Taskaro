@@ -1,11 +1,11 @@
-import React from "react";
+import React, { Suspense } from "react";
 import CreateTask from "@/app/components/dashboard/CreateTask";
 
 const page = () => {
   return (
-    <div>
+    <Suspense fallback={<div>Loading...</div>}>
       <CreateTask />
-    </div>
+    </Suspense>
   );
 };
 

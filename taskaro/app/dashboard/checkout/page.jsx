@@ -6,7 +6,6 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
-import Razorpay from "razorpay";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -249,13 +248,18 @@ const CheckoutPage = () => {
         theme: { color: "#242424" },
       };
 
-      const paymentObject = new window.Razorpay(options);
+      if (typeof window !== "undefined" && window.Razorpay) {
+        const paymentObject = new window.Razorpay(options);
 
-      paymentObject.open();
-      paymentObject.on("payment.failed", () => {
-        paymentObject.close(); // 🔥 THIS LINE
-        router.push("/dashboard/checkout/failure?reason=failed");
-      });
+        paymentObject.open();
+
+        paymentObject.on("payment.failed", () => {
+          paymentObject.close();
+          router.push("/dashboard/checkout/failure?reason=failed");
+        });
+      } else {
+        toast.error("Payment SDK not loaded. Please try again.");
+      }
     } catch (error) {
       console.error(error);
       toast.error(
@@ -277,7 +281,10 @@ const CheckoutPage = () => {
 
   return (
     <>
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" />
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        strategy="lazyOnload"
+      />
       <div className="min-h-screen bg-(--color-bg) flex items-center justify-center p-4">
         <div className="bg-(--card-bg) rounded-xl shadow-lg overflow-hidden max-w-md w-full">
           {/* Header */}
@@ -361,8 +368,20 @@ const CheckoutPage = () => {
             </button>
 
             <p className="text-xs text-(--color-desc) mt-3 text-center">
-              By clicking "Buy Now", you agree to our <Link className="underline-offset-2 underline" href="/terms-conditions">Terms of Service</Link> and
-              {" "}<Link className="underline-offset-2 underline" href={"/privacy-policy"}>Privacy Policy</Link>
+              By clicking "Buy Now", you agree to our{" "}
+              <Link
+                className="underline-offset-2 underline"
+                href="/terms-conditions"
+              >
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link
+                className="underline-offset-2 underline"
+                href={"/privacy-policy"}
+              >
+                Privacy Policy
+              </Link>
             </p>
           </div>
         </div>

@@ -1,3 +1,5 @@
+"use client";
+
 // app/features/page.jsx
 import { FaUsers, FaTasks, FaBell, FaChartLine, FaRupeeSign, FaCalendarAlt } from 'react-icons/fa';
 import { FiUserCheck, FiMail } from 'react-icons/fi';

@@ -1,16 +1,8 @@
 import Navbar from "@/components/Navbar";
 import "./globals.css";
 import Footer from "@/components/Footer";
-import StoreProvider from "@/components/provider/StoreProvider";
-import { Toaster } from "react-hot-toast";
-// import NotificationProvider from "@/components/NotificationContext";
-import { Inter, Poppins } from "next/font/google";
-import dynamic from "next/dynamic";
-import NextTopLoader from "nextjs-toploader";
-
-const SessionWrapper = dynamic(() =>
-  import("@/components/provider/SessionWrapper")
-);
+import {Poppins } from "next/font/google";
+import RootLayoutWrapper from "@/components/RootLayoutWrapper";
 
 // const inter = Inter({
 //   subsets: ["latin"],
@@ -33,40 +25,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="hydrated dark">
       <body className={`${inter.className}`}>
-        <NextTopLoader />
-        <SessionWrapper>
-          <Toaster
-            position="top-center"
-            reverseOrder={false}
-            gutter={8}
-            containerClassName=""
-            containerStyle={{}}
-            toastOptions={{
-              // Define default options
-              className: "",
-              duration: 5000,
-              removeDelay: 1000,
-              style: {
-                background: "#363636",
-                color: "#fff",
-              },
-
-              // Default options for specific types
-              success: {
-                duration: 3000,
-                iconTheme: {
-                  primary: "green",
-                  secondary: "black",
-                },
-              },
-            }}
-          />
-          <StoreProvider>
-            <Navbar />
-            {children}
-            <Footer />
-          </StoreProvider>
-        </SessionWrapper>
+        <RootLayoutWrapper>
+          <Navbar />
+          {children}
+          <Footer />
+        </RootLayoutWrapper>
       </body>
     </html>
   );

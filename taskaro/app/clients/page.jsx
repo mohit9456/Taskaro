@@ -4,7 +4,11 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import { Autoplay, Pagination } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/pagination";
-import Marquee from "react-fast-marquee";
+import dynamic from "next/dynamic";
+
+const Marquee = dynamic(() => import("react-fast-marquee"), {
+  ssr: false,
+});
 import hero_img from "../../public/clients/clients.png";
 import Image from "next/image";
 

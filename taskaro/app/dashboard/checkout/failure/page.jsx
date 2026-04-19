@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 // app/checkout/failure/page.jsx
 const FailurePage = () => {
   return (
