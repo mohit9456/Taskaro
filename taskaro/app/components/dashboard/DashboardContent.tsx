@@ -104,15 +104,19 @@ export default function DashboardContent() {
     setNewTitle("");
 
     try {
-      const res = await axios.post("/api/secure/tasks/create", {
+      const payload = {
         title: optimisticTask.title,
         priority: optimisticTask.priority,
-        dueDate: optimisticTask.dueDate,
+        dueDate: optimisticTask.dueDate
+          ? new Date(optimisticTask.dueDate).toISOString()
+          : new Date().toISOString(),
         assignTo: "self",
-      });
+      };
+
+      const res = await protectedApiPost("/secure/tasks/create", payload);
 
       // Replace temp with real server task
-      const created = res.data?.task || res.data;
+      const created = res?.task || res?.data?.task || res;
       if (created?._id) {
         setTasks((prev) =>
           prev.map((t) => (t._id === tempId ? created : t))
@@ -120,8 +124,9 @@ export default function DashboardContent() {
       }
     } catch (err: any) {
       setCreateError(
-        err?.response?.data?.message ||
-          err?.response?.data?.error ||
+        err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
           "Failed to create task"
       );
       // Rollback optimistic
@@ -141,7 +146,7 @@ export default function DashboardContent() {
     );
 
     try {
-      await axios.put("/api/secure/tasks/update", {
+      await protectedApiPost("/secure/tasks/update", {
         taskId: task._id,
         status: nextStatus,
       });
@@ -158,9 +163,7 @@ export default function DashboardContent() {
   const handleDeleteTask = async (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t._id !== taskId));
     try {
-      await axios.delete("/api/secure/tasks/delete", {
-        data: { _id: taskId },
-      });
+      await protectedApiPost("/secure/tasks/delete", { _id: taskId });
     } catch (err) {
       console.error("Delete task error:", err);
       fetchTasks();

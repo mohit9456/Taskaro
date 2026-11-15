@@ -48,18 +48,10 @@ export const createTaskService = async ({
 
   if (dueDate) {
     parsedDueDate = new Date(dueDate);
-    const now = new Date();
 
-    // invalid date OR past date-time
+    // invalid date
     if (isNaN(parsedDueDate.getTime())) {
       throw { message: "Invalid due date format", status: 400 };
-    }
-
-    if (parsedDueDate <= now) {
-      throw {
-        message: "Due date must be in the future",
-        status: 400,
-      };
     }
   }
 

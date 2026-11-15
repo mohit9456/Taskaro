@@ -1,12 +1,16 @@
 import React from "react";
 import Trash from "@/app/components/dashboard/Trash";
+import { Metadata } from "next";
 
-const page = () => {
+export const metadata: Metadata = {
+  title: "Trash | Taskaro",
+  description: "View and restore deleted tasks in Taskaro.",
+};
+
+export default function TrashPage() {
   return (
-    <div>
+    <div className="w-full">
       <Trash />
     </div>
   );
-};
-
-export default page;
+}
