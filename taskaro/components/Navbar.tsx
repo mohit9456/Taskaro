@@ -34,9 +34,15 @@ const navItems: NavItem[] = [
 ];
 
 export default function Navbar() {
+  const pathname = usePathname();
+
+  // Hide marketing navbar on dashboard views (dashboard has its own dedicated fixed sidebar)
+  if (pathname?.startsWith("/dashboard")) {
+    return null;
+  }
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const pathname = usePathname();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { data: session, status } = useSession();
