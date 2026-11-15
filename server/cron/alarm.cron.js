@@ -15,7 +15,9 @@ const startAlarmCron = () => {
       ":" +
       now.getMinutes().toString().padStart(2, "0");
 
-    const today = now.getDay(); // 0 sunday
+    const today = now.getDay(); // 0 sunday, 1 monday...
+    const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const todayName = DAY_NAMES[today];
 
     const alarms = await Alarm.find({
       time: currentTime,
@@ -23,9 +25,18 @@ const startAlarmCron = () => {
     }).lean();
 
     for (const alarm of alarms) {
-      // ✅ CUSTOM DAY CHECK
+      // ✅ WEEKDAYS CHECK (Mon-Fri)
+      if (alarm.repeat === "Weekdays" && (today === 0 || today === 6)) {
+        continue;
+      }
+
+      // ✅ CUSTOM DAY CHECK (Supports "Mon", "Tue" strings and 0-6 numbers)
       if (alarm.repeat === "Custom") {
-        if (!alarm.customDays.includes(today)) continue;
+        const hasDay =
+          alarm.customDays.includes(todayName) ||
+          alarm.customDays.includes(today) ||
+          alarm.customDays.includes(String(today));
+        if (!hasDay) continue;
       }
 
       const user = await User.findById(alarm.userId);

@@ -2,12 +2,13 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const http = require("http");
+const path = require("path");
 
 const connectDb = require("./config/db");
 const startNotificationCron = require("./cron/notification.cron.js");
 const startAlarmCron = require("./cron/alarm.cron.js");
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, ".env") });
 
 const app = express();
 

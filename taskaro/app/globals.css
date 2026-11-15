@@ -2,37 +2,53 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --color-text: var(--color-text);
+  --color-content: var(--color-content);
+  --color-desc: var(--color-desc);
+  --color-cardBg: var(--card-bg);
+  --color-card-bg: var(--card-bg);
+  --color-page-bg: var(--color-bg);
+  --color-hoverCardBg: var(--hover-card-bg);
+  --color-border: var(--color-border);
+  --color-primary: var(--color-primary);
+  --color-secondary: var(--color-secondary);
+  --color-accent: var(--color-accent);
+}
+
 html {
   /* Font */
   --font-inter:
     "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 
-  /* Colors - light mode */
-  --color-bg: #ffffff;
-  --card-bg: #dcdcdc;
-  --hover-card-bg: #e5e5e5;
-  --color-text: #111827;
-  --color-content: #242424;
-  --color-desc: #3a3a3a;
+  /* Unified Colors - Light mode (Clean White & Slate) */
+  --color-bg: #f8fafc;
+  --card-bg: #ffffff;
+  --hover-card-bg: #f1f5f9;
+  --color-input: #ffffff;
+  --color-text: #0f172a;
+  --color-content: #334155;
+  --color-desc: #64748b;
   --color-primary: #3b82f6;
   --color-secondary: #2563eb;
   --color-accent: #f59e0b;
-  --color-border: #e5e7eb;
+  --color-border: #e2e8f0;
 }
 
-/* Dark mode */
-html.dark {
-  --color-bg: #000000;
-  --card-bg: #181818;
-  --hover-card-bg: #131313;
-  --color-text: #dfdfd6;
-  --color-content: #cdcbcb;
-  --color-desc: #b6b6b6;
+/* Unified Colors - Dark mode (Deep Modern Dark) */
+html.dark, html:where(.dark, .dark *) {
+  --color-bg: #090d16;
+  --card-bg: #121927;
+  --hover-card-bg: #1a2336;
+  --color-input: #0f172a;
+  --color-text: #f8fafc;
+  --color-content: #cbd5e1;
+  --color-desc: #94a3b8;
   --color-primary: #3b82f6;
   --color-secondary: #2563eb;
   --color-accent: #fbbf24;
-  --color-border: #98989f;
+  --color-border: #1e293b;
 }
 
 body {
