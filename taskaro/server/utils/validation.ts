@@ -1,4 +1,5 @@
 export const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+export const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 export function validateRegisterInput({
   name,
@@ -6,23 +7,30 @@ export function validateRegisterInput({
   phone,
   password,
   cPassword,
-}) {
+}: any) {
   if (!name || !email || !password || !cPassword || !phone) {
     throw { status: 400, message: "All fields are required" };
   }
 
-  if (!gmailRegex.test(email)) {
+  if (!emailRegex.test(email)) {
     throw {
       status: 400,
-      message:
-        "Please provide a valid Gmail address (e.g., example@gmail.com). To use a company email, kindly subscribe to our community plan.",
+      message: "Please provide a valid email address (e.g. name@domain.com)",
     };
   }
 
-  if (phone.length < 10) {
+  const cleanPhone = String(phone).replace(/\D/g, "");
+  if (cleanPhone.length < 10) {
     throw {
       status: 400,
-      message: "Phone number should be 10 digits long",
+      message: "Phone number should be at least 10 digits",
+    };
+  }
+
+  if (password.length < 6) {
+    throw {
+      status: 400,
+      message: "Password must be at least 6 characters",
     };
   }
 

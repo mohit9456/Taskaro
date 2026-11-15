@@ -2,7 +2,6 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { useRouter } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
 import { googleLoginUser, loginUser, registerUser } from "./authActions";
-import toast from "react-hot-toast";
 import { protectedApiGet } from "@/lib/api";
 
 export interface UserState {
@@ -40,6 +39,10 @@ const authSlice = createSlice({
     logout: (state) => {
       state.user = null;
       state.isAuthenticated = false;
+      state.error = null;
+    },
+    clearError: (state) => {
+      state.error = null;
     },
   },
   extraReducers: (builder) => {
@@ -52,7 +55,7 @@ const authSlice = createSlice({
         state.loading = false;
         state.user = action.payload?.user;
         state.isAuthenticated = true;
-        toast.success("Login successful!");
+        state.error = null;
       })
       .addCase(loginUser.rejected, (state, action: any) => {
         state.loading = false;
@@ -66,12 +69,11 @@ const authSlice = createSlice({
         state.loading = false;
         state.user = action.payload?.user;
         state.isAuthenticated = true;
-        toast.success("Google Login successful!");
+        state.error = null;
       })
       .addCase(googleLoginUser.rejected, (state, action: any) => {
         state.loading = false;
         state.error = action.payload;
-        if (action.payload) toast.error(String(action.payload));
       })
       .addCase(registerUser.pending, (state) => {
         state.loading = true;
@@ -80,7 +82,7 @@ const authSlice = createSlice({
       .addCase(registerUser.fulfilled, (state) => {
         state.loading = false;
         state.isAuthenticated = true;
-        toast.success("Registration successful!");
+        state.error = null;
       })
       .addCase(registerUser.rejected, (state, action: any) => {
         state.loading = false;
@@ -91,7 +93,7 @@ const authSlice = createSlice({
 
 export default authSlice;
 
-export const { setUser, logout } = authSlice.actions;
+export const { setUser, logout, clearError } = authSlice.actions;
 
 export const useAuth = () => {
   const { isAuthenticated, user, loading, error } = useSelector(
@@ -102,15 +104,19 @@ export const useAuth = () => {
   const dispatch = useDispatch();
 
   const setLogin = (payload: any) => {
-    dispatch(loginUser(payload) as any);
+    return dispatch(loginUser(payload) as any);
   };
 
   const setGoogleLogin = (payload?: any) => {
-    dispatch(googleLoginUser(payload) as any);
+    return dispatch(googleLoginUser(payload) as any);
   };
 
   const setCreateUser = (payload: any) => {
-    dispatch(registerUser(payload) as any);
+    return dispatch(registerUser(payload) as any);
+  };
+
+  const clearAuthError = () => {
+    dispatch(clearError());
   };
 
   const logoutUser = () => {
@@ -128,7 +134,6 @@ export const useAuth = () => {
           err.response?.status === 401 &&
           err?.response?.data?.error === "Token has expired"
         ) {
-          toast.error("Session expired!");
           logoutUser();
           dispatch(logout());
         }
@@ -141,10 +146,10 @@ export const useAuth = () => {
     user,
     loading,
     error,
+    clearAuthError,
     isAuthenticated,
     setGoogleLogin,
     setCreateUser,
     fetchUser,
   };
 };
-

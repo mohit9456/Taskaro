@@ -31,7 +31,7 @@ export default function ThemeToggle({ className = "", showLabel = false }: Theme
       type="button"
       aria-label="Toggle theme"
       title={`Switch to ${isDark ? "Light" : "Dark"} mode`}
-      className={`flex items-center gap-2 p-2 rounded-lg border border-(--border-color) bg-(--card-bg) hover:bg-(--hover-card-bg) text-(--color-text) transition-colors cursor-pointer ${className}`}
+      className={`flex items-center gap-2 p-2 rounded-lg bg-(--card-bg) hover:bg-(--hover-card-bg) text-(--color-text) transition-colors cursor-pointer ${className}`}
     >
       {isDark ? (
         <LuSun className="w-5 h-5 text-amber-400 transition-transform duration-300 hover:rotate-45" />

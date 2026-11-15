@@ -2,14 +2,22 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import React, { useState } from "react";
+import { usePathname } from "next/navigation";
+import React, { useState, useRef, useEffect } from "react";
 import logo from "../public/Logo3.png";
 import { signOut, useSession } from "next-auth/react";
-import toast from "react-hot-toast";
-import { FaArrowRight } from "react-icons/fa6";
-import { ImCross } from "react-icons/im";
-import { CgProfile } from "react-icons/cg";
 import ThemeToggle from "./ThemeToggle";
+import {
+  Menu,
+  X,
+  ChevronDown,
+  LayoutDashboard,
+  CheckSquare,
+  User,
+  LogOut,
+  ArrowRight,
+  Sparkles,
+} from "lucide-react";
 
 interface NavItem {
   id: number;
@@ -17,189 +25,314 @@ interface NavItem {
   url: string;
 }
 
-const headerData: NavItem[] = [
+const navItems: NavItem[] = [
   { id: 1, name: "Home", url: "/" },
-  { id: 2, name: "Clients", url: "/clients" },
-  { id: 3, name: "Features", url: "/features" },
-  { id: 4, name: "Pricing", url: "/pricing" },
+  { id: 2, name: "Features", url: "/features" },
+  { id: 3, name: "Pricing", url: "/pricing" },
+  { id: 4, name: "Clients", url: "/clients" },
   { id: 5, name: "Contact", url: "/contact-us" },
 ];
 
 export default function Navbar() {
-  const [navbarClose, setNavbarClose] = useState(false);
-  const [profileHover, setProfileHover] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const pathname = usePathname();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setProfileDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+    setProfileDropdownOpen(false);
+  }, [pathname]);
 
   const handleLogout = async () => {
-    await signOut();
-    toast.success("Logged out successfully");
+    await signOut({ callbackUrl: "/" });
+  };
+
+  const getUserInitials = (name?: string | null) => {
+    if (!name) return "U";
+    const parts = name.trim().split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0][0].toUpperCase();
   };
 
   return (
-    <header className="flex backdrop-blur-md sticky top-0 bg-(--card-bg)/90 border-b border-(--color-border) items-center py-3 justify-between px-4 md:px-10 z-50 transition-colors">
-      <nav className="w-full">
-        <div className="flex justify-between items-center mx-auto max-w-screen">
-          <Link href="/" className="flex w-fit items-center">
-            <Image
-              src={logo}
-              alt="Taskaro Logo"
-              className="w-36 md:w-44 dark:invert dark:brightness-0"
-              priority
-            />
-          </Link>
-          <div className="flex items-center lg:order-2 gap-2">
-            <ThemeToggle />
-            <div className="flex items-center justify-center relative">
-              {session ? (
-                <div
-                  onMouseEnter={() => setProfileHover(true)}
-                  onMouseLeave={() => setProfileHover(false)}
-                  className="relative"
-                >
-                  <button className="bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) hidden md:flex items-center gap-1.5 font-medium rounded-lg text-sm px-3.5 py-2 mr-2 cursor-pointer transition-colors">
-                    <CgProfile className="w-4 h-4 text-(--color-primary)" />
-                    <span>{session.user?.name}</span>
-                  </button>
-                  <CgProfile
-                    className="md:hidden mr-2 cursor-pointer text-(--color-content)"
-                    size={24}
-                  />
-                  {profileHover && (
-                    <div className="absolute top-full right-0 w-44 rounded-xl flex flex-col items-start p-2 bg-(--card-bg) border border-(--color-border) shadow-xl z-50 space-y-1">
-                      <Link
-                        href="/dashboard"
-                        className="w-full text-left px-3 py-1.5 rounded-lg text-(--color-text) hover:bg-(--hover-card-bg) text-sm font-medium transition-colors"
-                      >
-                        Dashboard
-                      </Link>
-                      <Link
-                        href="/dashboard/update-profile"
-                        className="w-full text-left px-3 py-1.5 rounded-lg text-(--color-text) hover:bg-(--hover-card-bg) text-sm font-medium transition-colors"
-                      >
-                        Your Profile
-                      </Link>
-                      <button
-                        onClick={handleLogout}
-                        className="w-full text-left px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-500/10 text-sm font-medium transition-colors cursor-pointer"
-                      >
-                        Log out
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <Link
-                  href="/auth/login"
-                  className="bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) hidden md:block font-medium rounded-lg text-sm px-4 py-2 mr-2 transition-colors"
-                >
-                  Log in
-                </Link>
-              )}
-              <Link
-                href="/join"
-                className="text-white bg-(--color-primary) hover:bg-blue-600 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors shadow-xs"
-              >
-                Join Now
-              </Link>
-            </div>
-            <button
-              onClick={() => setNavbarClose(true)}
-              data-collapse-toggle="mobile-menu-2"
-              type="button"
-              className="inline-flex items-center p-2 text-sm text-(--color-desc) rounded-lg lg:hidden hover:bg-(--hover-card-bg)"
-              aria-controls="mobile-menu-2"
-              aria-expanded="false"
-            >
-              <span className="sr-only">Open main menu</span>
-              <svg
-                className="w-6 h-6"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"
-                  clipRule="evenodd"
-                ></path>
-              </svg>
-            </button>
-          </div>
-          <div
-            className={`transition-all duration-300 ease-in-out transform ${
-              navbarClose ? "translate-x-0" : "-translate-x-full"
-            } lg:hidden fixed top-0 left-0 w-full h-screen bg-(--card-bg) flex flex-col px-5 pt-5 gap-5 z-50`}
+    <header className="sticky top-0 z-50 w-full backdrop-blur-xl bg-(--card-bg)/80 border-b border-(--color-border)/80 transition-colors duration-200">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          {/* LOGO */}
+          <Link
+            href="/"
+            className="flex items-center gap-2 group transition-transform duration-200 hover:scale-[1.02]"
           >
-            <div className="flex w-full justify-between items-center px-4 py-2">
-              <Link href="/" className="flex w-fit items-center">
-                <Image
-                  src={logo}
-                  alt="Taskaro Logo"
-                  className="w-36 dark:invert dark:brightness-0"
-                />
-              </Link>
-              <ImCross
-                onClick={() => setNavbarClose(false)}
-                size={18}
-                className="cursor-pointer text-(--color-content)"
+            <div className="relative">
+              <Image
+                src={logo}
+                alt="Taskaro Logo"
+                className="w-32 sm:w-36 md:w-40 h-auto dark:invert dark:brightness-110 transition-all duration-200"
+                priority
               />
             </div>
-            <div className="flex flex-col justify-start items-start gap-2 w-full">
-              <div className="px-4 py-2 w-full">
-                <ThemeToggle showLabel className="w-full justify-between" />
-              </div>
-              {headerData.map((item) => (
+          </Link>
+
+          {/* DESKTOP NAVIGATION */}
+          <nav className="hidden md:flex items-center gap-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.url;
+              return (
                 <Link
                   key={item.id}
                   href={item.url}
-                  onClick={() => setNavbarClose(false)}
-                  className="text-sm flex w-full justify-between items-center px-4 py-2.5 rounded-lg hover:bg-(--hover-card-bg) text-(--color-text) transition-colors"
+                  className={`relative px-3.5 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                    isActive
+                      ? "text-(--color-primary) bg-(--hover-card-bg) shadow-xs"
+                      : "text-(--color-content) hover:text-(--color-text) hover:bg-(--hover-card-bg)/60"
+                  }`}
                 >
-                  <p className="font-medium">{item.name}</p>
-                  <FaArrowRight className="text-(--color-desc)" />
+                  {item.name}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-(--color-primary) rounded-full -mb-1" />
+                  )}
                 </Link>
-              ))}
-            </div>
-            {!session && (
-              <div className="flex w-full justify-between items-center px-4 py-2 gap-2 mt-2">
+              );
+            })}
+          </nav>
+
+          {/* RIGHT ACTIONS */}
+          <div className="flex items-center gap-2.5">
+            {/* THEME TOGGLE */}
+            <ThemeToggle />
+
+            {/* AUTH STATE */}
+            {status === "loading" ? (
+              <div className="w-8 h-8 rounded-full bg-(--hover-card-bg) animate-pulse hidden sm:block" />
+            ) : session?.user ? (
+              /* LOGGED IN DROPDOWN */
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setProfileDropdownOpen((prev) => !prev)}
+                  className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-full border border-(--color-border) bg-(--card-bg) hover:bg-(--hover-card-bg) transition-all duration-150 cursor-pointer shadow-xs"
+                  aria-expanded={profileDropdownOpen}
+                >
+                  {session.user.image ? (
+                    <img
+                      src={session.user.image}
+                      alt={session.user.name || "User"}
+                      className="w-7 h-7 rounded-full object-cover ring-1 ring-(--color-border)"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-linear-to-tr from-blue-600 to-indigo-600 text-white font-semibold text-xs flex items-center justify-center ring-1 ring-white/20">
+                      {getUserInitials(session.user.name)}
+                    </div>
+                  )}
+                  <span className="hidden sm:inline-block text-xs font-semibold text-(--color-text) max-w-[120px] truncate">
+                    {session.user.name?.split(" ")[0]}
+                  </span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-(--color-desc) transition-transform duration-200 ${
+                      profileDropdownOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {/* PROFILE DROPDOWN MENU */}
+                {profileDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-(--card-bg) border border-(--color-border) shadow-xl shadow-black/10 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-4 py-2.5 border-b border-(--color-border)">
+                      <p className="text-xs font-semibold text-(--color-text) truncate">
+                        {session.user.name}
+                      </p>
+                      <p className="text-[11px] text-(--color-desc) truncate mt-0.5">
+                        {session.user.email}
+                      </p>
+                    </div>
+
+                    <div className="p-1 space-y-0.5">
+                      <Link
+                        href="/dashboard"
+                        onClick={() => setProfileDropdownOpen(false)}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-(--color-text) hover:bg-(--hover-card-bg) transition-colors"
+                      >
+                        <LayoutDashboard className="w-4 h-4 text-(--color-primary)" />
+                        Dashboard
+                      </Link>
+                      <Link
+                        href="/dashboard/my-tasks"
+                        onClick={() => setProfileDropdownOpen(false)}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-(--color-text) hover:bg-(--hover-card-bg) transition-colors"
+                      >
+                        <CheckSquare className="w-4 h-4 text-emerald-500" />
+                        My Tasks
+                      </Link>
+                      <Link
+                        href="/dashboard/update-profile"
+                        onClick={() => setProfileDropdownOpen(false)}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-(--color-text) hover:bg-(--hover-card-bg) transition-colors"
+                      >
+                        <User className="w-4 h-4 text-amber-500" />
+                        Edit Profile
+                      </Link>
+                    </div>
+
+                    <div className="border-t border-(--color-border) p-1 mt-1">
+                      <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-xs font-medium text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Log out
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* LOGGED OUT ACTIONS */
+              <div className="hidden sm:flex items-center gap-2">
                 <Link
                   href="/auth/login"
-                  onClick={() => setNavbarClose(false)}
-                  className="bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) font-semibold rounded-lg text-sm py-2.5 w-1/2 text-center"
+                  className="px-4 py-2 rounded-full text-xs font-medium text-(--color-text) hover:bg-(--hover-card-bg) transition-all duration-150"
                 >
                   Log in
                 </Link>
                 <Link
                   href="/auth/signup"
-                  onClick={() => setNavbarClose(false)}
-                  className="bg-(--color-primary) text-white font-semibold rounded-lg text-sm py-2.5 w-1/2 text-center"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold text-white bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-md shadow-blue-500/20 hover:shadow-blue-500/30 transition-all duration-150 active:scale-95"
                 >
-                  Sign up
+                  <span>Get Started</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
             )}
-          </div>
-          <div
-            className="hidden justify-between items-center w-full lg:flex lg:w-auto lg:order-1"
-            id="mobile-menu-2"
-          >
-            <ul className="flex flex-col mt-4 font-medium lg:flex-row lg:space-x-8 lg:mt-0 text-sm">
-              {headerData.map((item) => (
-                <li key={item.id}>
-                  <Link
-                    href={item.url}
-                    className="block py-2 pr-4 pl-3 text-(--color-content) hover:text-(--color-primary) transition-colors"
-                  >
-                    {item.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
+
+            {/* MOBILE HAMBURGER BUTTON */}
+            <button
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              className="md:hidden p-2 rounded-xl text-(--color-content) hover:text-(--color-text) hover:bg-(--hover-card-bg) border border-(--color-border) transition-colors cursor-pointer"
+              aria-label="Toggle navigation menu"
+            >
+              {mobileMenuOpen ? (
+                <X className="w-5 h-5" />
+              ) : (
+                <Menu className="w-5 h-5" />
+              )}
+            </button>
           </div>
         </div>
-      </nav>
+      </div>
+
+      {/* MOBILE DRAWER / OVERLAY */}
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-x-0 top-16 bg-(--card-bg)/95 backdrop-blur-2xl border-b border-(--color-border) shadow-2xl px-5 py-6 space-y-5 animate-in slide-in-from-top-4 duration-200 z-50">
+          {/* USER INFO IF LOGGED IN */}
+          {session?.user && (
+            <div className="flex items-center gap-3 p-3 rounded-2xl bg-(--hover-card-bg) border border-(--color-border)">
+              {session.user.image ? (
+                <img
+                  src={session.user.image}
+                  alt={session.user.name || "User"}
+                  className="w-10 h-10 rounded-full object-cover ring-2 ring-(--color-border)"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-linear-to-tr from-blue-600 to-indigo-600 text-white font-semibold text-sm flex items-center justify-center">
+                  {getUserInitials(session.user.name)}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-(--color-text) truncate">
+                  {session.user.name}
+                </p>
+                <p className="text-xs text-(--color-desc) truncate">
+                  {session.user.email}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* MOBILE NAV LINKS */}
+          <nav className="space-y-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.url;
+              return (
+                <Link
+                  key={item.id}
+                  href={item.url}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                    isActive
+                      ? "text-(--color-primary) bg-(--hover-card-bg) font-semibold"
+                      : "text-(--color-content) hover:text-(--color-text) hover:bg-(--hover-card-bg)/60"
+                  }`}
+                >
+                  <span>{item.name}</span>
+                  <ArrowRight className="w-4 h-4 opacity-40" />
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* QUICK DASHBOARD / PROFILE FOR MOBILE */}
+          {session?.user ? (
+            <div className="pt-2 border-t border-(--color-border) space-y-2">
+              <Link
+                href="/dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-(--color-text) hover:bg-(--hover-card-bg)"
+              >
+                <LayoutDashboard className="w-4 h-4 text-(--color-primary)" />
+                <span>Go to Dashboard</span>
+              </Link>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-medium text-rose-500 hover:bg-rose-500/10 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log out</span>
+              </button>
+            </div>
+          ) : (
+            /* MOBILE AUTH BUTTONS */
+            <div className="pt-2 border-t border-(--color-border) flex flex-col gap-2.5">
+              <Link
+                href="/auth/signup"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-linear-to-r from-blue-600 to-indigo-600 shadow-md shadow-blue-500/20"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Get Started Free</span>
+              </Link>
+              <Link
+                href="/auth/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-center w-full py-2.5 rounded-xl text-sm font-medium text-(--color-text) bg-(--hover-card-bg) border border-(--color-border)"
+              >
+                Log in to Account
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
     </header>
   );
 }
-
