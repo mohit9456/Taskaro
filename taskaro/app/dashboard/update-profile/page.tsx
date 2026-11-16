@@ -1,738 +1,883 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { MdEdit } from "react-icons/md";
-import toast from "react-hot-toast";
-import { Api, protectedApiGet, protectedApiPost } from "@/lib/api";
-import { useSession } from "next-auth/react";
-import { formatDate } from "@/utils/formatDate";
-import { CgProfile } from "react-icons/cg";
-import { FaBackwardFast } from "react-icons/fa6";
 
-const ProfilePage = () => {
+import React, { useState, useEffect, useRef } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { protectedApiPost, protectedApiGet } from "@/lib/api";
+import {
+  User,
+  Mail,
+  Phone,
+  Camera,
+  Shield,
+  Lock,
+  CheckCircle2,
+  AlertCircle,
+  ArrowLeft,
+  Save,
+  Sparkles,
+  KeyRound,
+  Loader2,
+  Eye,
+  EyeOff,
+  Flame,
+  BellRing,
+  CheckSquare,
+  Activity,
+} from "lucide-react";
+
+export default function UpdateProfilePage() {
   const router = useRouter();
-  const [userData, setUserData] = useState(null);
-  const [isChangePassword, setIsChangePassword] = useState(false);
-  const [passwordLoaderBtn, setPasswordLoaderBtn] = useState(false);
-  const [changeScreen, setChangeScreen] = useState(null);
+  const { data: session, update } = useSession();
+
+  // Tabs
+  const [activeTab, setActiveTab] = useState<"profile" | "security" | "stats">("profile");
+
+  // Profile Form State
+  const [name, setName] = useState("");
+  const [about, setAbout] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [authProvider, setAuthProvider] = useState<string>("credentials");
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Status & Feedback
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  // Password / Security State
+  const [securityStep, setSecurityStep] = useState<"initial" | "otp" | "password">("initial");
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
+  const [securityError, setSecurityError] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
-  const [passwordErrMsg, setPasswordErrMsg] = useState(null);
-  const [tasks, setTasks] = useState([]);
-  const [stats, setStats] = useState({
-    completed: 0,
-    pending: 0,
-    overdue: 0,
+  // Real Workspace Stats
+  const [userStats, setUserStats] = useState<{
+    totalTasks: number;
+    completedTasks: number;
+    totalHabits: number;
+    totalAlarms: number;
+  }>({
+    totalTasks: 0,
+    completedTasks: 0,
+    totalHabits: 0,
+    totalAlarms: 0,
   });
-  const [activeTab, setActiveTab] = useState("overview");
-  const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState<any>({
-    name: "",
-    bio: "",
-    profileImage: null, // 👈 नया field
-  });
+  const [statsLoading, setStatsLoading] = useState(true);
 
-  const { data: session, update } = useSession();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Populate user data from session
   useEffect(() => {
     if (!session?.user) return;
-
-    const user: any = session.user;
-
-    setUserData({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      bio: user.about || "",
-      avatar: user.profileImage || "",
-      joinedAt: user.createdAt ? new Date(user.createdAt) : "",
-    });
-
-    setEditForm({
-      name: user.name || "",
-      bio: user.about || "",
-      profileImage: null,
-    });
+    const u: any = session.user;
+    setName(u.name || "");
+    setEmail(u.email || "");
+    setAbout(u.about || "");
+    setPhone(u.phone || "");
+    setAvatarUrl(u.image || u.profileImage || "");
+    setAuthProvider(u.authProvider || (u.image?.includes("googleusercontent.com") ? "google" : "credentials"));
   }, [session]);
 
+  // Load real workspace stats
   useEffect(() => {
-    // Fetch user tasks
-    const fetchUserTasks = async () => {
-      // Simulate API call with dummy data
-      setTimeout(() => {
-        setTasks([
-          {
-            id: "task1",
-            title: "Complete project proposal",
-            status: "completed",
-            dueDate: "2023-11-20",
-          },
-          {
-            id: "task2",
-            title: "Review team progress",
-            status: "pending",
-            dueDate: "2023-12-01",
-          },
-          {
-            id: "task3",
-            title: "Update documentation",
-            status: "overdue",
-            dueDate: "2023-11-15",
-          },
-          {
-            id: "task4",
-            title: "Schedule team meeting",
-            status: "completed",
-            dueDate: "2023-11-18",
-          },
+    const loadStats = async () => {
+      try {
+        setStatsLoading(true);
+        const [tasksRes, habitsRes, alarmsRes] = await Promise.allSettled([
+          protectedApiGet("/secure/tasks/list"),
+          protectedApiGet("/secure/habits/list"),
+          protectedApiGet("/secure/alarm/list"),
         ]);
-      }, 700);
+
+        let totalTasks = 0;
+        let completedTasks = 0;
+        if (tasksRes.status === "fulfilled" && tasksRes.value?.task) {
+          const list = tasksRes.value.task;
+          totalTasks = list.length;
+          completedTasks = list.filter((t: any) => t.status === "done").length;
+        }
+
+        let totalHabits = 0;
+        if (habitsRes.status === "fulfilled" && habitsRes.value?.habits) {
+          totalHabits = habitsRes.value.habits.length;
+        }
+
+        let totalAlarms = 0;
+        if (alarmsRes.status === "fulfilled" && alarmsRes.value?.alarms) {
+          totalAlarms = alarmsRes.value.alarms.length;
+        }
+
+        setUserStats({
+          totalTasks,
+          completedTasks,
+          totalHabits,
+          totalAlarms,
+        });
+      } catch (e) {
+        console.warn("Failed to load workspace stats:", e);
+      } finally {
+        setStatsLoading(false);
+      }
     };
 
-    fetchUserTasks();
-  }, []);
-
-  useEffect(() => {
-    if (tasks.length > 0) {
-      const completed = tasks.filter((t) => t.status === "completed").length;
-      const pending = tasks.filter((t) => t.status === "pending").length;
-      const overdue = tasks.filter((t) => t.status === "overdue").length;
-      setStats({ completed, pending, overdue });
+    if (session?.user) {
+      loadStats();
     }
-  }, [tasks]);
+  }, [session?.user]);
 
-  const handleEdit = () => {
-    setIsEditing(true);
+  // Handle avatar file selection
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setProfileError("Please select a valid image file (PNG, JPG, WebP)");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileError("Image size must be less than 5MB");
+      return;
+    }
+
+    setSelectedFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+    setProfileError(null);
   };
 
-  const handlePassword = () => {
-    setIsChangePassword(true);
-  };
+  // Submit Profile Form
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProfile(true);
+    setProfileSuccess(null);
+    setProfileError(null);
 
-  const handleSave = async () => {
     try {
       const formData = new FormData();
-      formData.append("name", editForm.name);
-      formData.append("about", editForm.bio); // bio → about
-      if (editForm.profileImage instanceof File) {
-        formData.append("profileImage", editForm.profileImage);
+      formData.append("name", name.trim());
+      formData.append("about", about.trim());
+      formData.append("phone", phone.trim());
+
+      if (selectedFile) {
+        formData.append("profileImage", selectedFile);
       }
 
-      // Axios POST
-      const data: any = await Api.post("/secure/edit-profile", formData, {
-        withCredentials: true,
-      });
-      await update();
-      toast.success(
-        data?.message || "Congratulations !! Your profile has been updated"
+      const res: any = await protectedApiPost("/secure/edit-profile", formData);
+
+      if (res?.success || res?.user) {
+        setProfileSuccess(res?.message || "Profile updated successfully!");
+
+        const updatedImg = res?.user?.profileImage || previewUrl || avatarUrl;
+        if (updatedImg) {
+          setAvatarUrl(updatedImg);
+        }
+
+        // Update NextAuth Session in-memory
+        await update({
+          name: name.trim(),
+          about: about.trim(),
+          phone: phone.trim(),
+          image: updatedImg,
+        });
+
+        setSelectedFile(null);
+        setTimeout(() => setProfileSuccess(null), 4000);
+      } else {
+        setProfileError(res?.error || "Failed to update profile");
+      }
+    } catch (err: any) {
+      setProfileError(
+        err?.response?.data?.error ||
+          err?.message ||
+          "An error occurred while saving profile."
       );
-      // सफल होने पर local state update करो
-      setIsEditing(false);
-    } catch (err) {
-      console.error(err);
-      toast.error("Something went wrong ! try again later");
+    } finally {
+      setSavingProfile(false);
     }
   };
 
-  const handleCancel = () => {
-    setIsEditing(false);
-    setEditForm({
-      name: userData.name,
-      email: userData.email,
-      bio: userData.bio,
-    });
+  // Security Step 1: Send OTP to Email
+  const handleSendOtp = async () => {
+    setSecurityLoading(true);
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    try {
+      const res: any = await protectedApiPost("/secure/validate-email");
+      setSecuritySuccess(res?.message || "Verification code sent to your email!");
+      setSecurityStep("otp");
+    } catch (err: any) {
+      setSecurityError(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to send verification code. Please try again."
+      );
+    } finally {
+      setSecurityLoading(false);
+    }
   };
 
-  const handleChange = (e) => {
-    setEditForm({
-      ...editForm,
-      [e.target.name]: e.target.value,
-    });
-  };
-
-  const handleValidateEmail = async () => {
-    if (!userData?.email) return;
-    setPasswordLoaderBtn(true);
-
-    protectedApiPost("/secure/validate-email")
-      .then((data) => {
-        toast.success(data?.message);
-        setChangeScreen(1);
-      })
-      .catch((error) => {
-        setPasswordErrMsg(
-          error?.response.data.error ||
-            "An unexpected error occurred. Please try again."
-        );
-        // console.error("Error:", error);
-      })
-      .finally(() => {
-        setPasswordLoaderBtn(false);
-      });
-  };
-
-  const handleVerifyOtp = async () => {
-    if (!userData?.email) return;
-    setPasswordLoaderBtn(true);
-
-    protectedApiPost("/secure/verify-otp", {
-      otp: otp,
-    })
-      .then((data) => {
-        toast.success(data?.message);
-        setChangeScreen(2);
-      })
-      .catch((error) => {
-        setPasswordErrMsg(
-          error?.response.data.error ||
-            "An unexpected error occurred. Please try again."
-        );
-        // console.error("Error:", error);
-      })
-      .finally(() => {
-        setPasswordLoaderBtn(false);
-      });
-  };
-
-  const isPasswordValid = () => {
-    if (!newPassword || !confirmPassword) {
-      setPasswordErrMsg("Password fields cannot be empty");
-      return false;
+  // Security Step 2: Verify OTP
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp.trim()) {
+      setSecurityError("Please enter the 6-digit OTP sent to your email.");
+      return;
     }
 
+    setSecurityLoading(true);
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    try {
+      const res: any = await protectedApiPost("/secure/verify-otp", { otp: otp.trim() });
+      setSecuritySuccess(res?.message || "Identity confirmed! Enter your new password.");
+      setSecurityStep("password");
+    } catch (err: any) {
+      setSecurityError(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Invalid or expired verification code."
+      );
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  // Security Step 3: Update Password
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (newPassword.length < 8) {
-      setPasswordErrMsg("Password must be at least 8 characters long");
-      return false;
+      setSecurityError("Password must be at least 8 characters long.");
+      return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordErrMsg("Passwords do not match");
-      return false;
+      setSecurityError("Passwords do not match.");
+      return;
     }
 
-    setPasswordErrMsg("");
-    return true;
+    setSecurityLoading(true);
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    try {
+      const res: any = await protectedApiPost("/secure/update-password", {
+        password: newPassword,
+        cPassword: confirmPassword,
+      });
+
+      setSecuritySuccess(res?.message || "Password updated successfully!");
+      setNewPassword("");
+      setConfirmPassword("");
+      setOtp("");
+      setSecurityStep("initial");
+      setTimeout(() => setSecuritySuccess(null), 5000);
+    } catch (err: any) {
+      setSecurityError(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to update password. Please try again."
+      );
+    } finally {
+      setSecurityLoading(false);
+    }
   };
 
-  const handleResetpassword = async () => {
-    if (!userData?.email) return;
-
-    if (!isPasswordValid()) return;
-
-    setPasswordLoaderBtn(true);
-
-    protectedApiPost("/secure/update-password", {
-      otp,
-      password: newPassword,
-      cPassword: confirmPassword,
-    })
-      .then((data) => {
-        toast.success(data?.message);
-        setChangeScreen(null);
-        setIsChangePassword(false);
-
-        // cleanup
-        setNewPassword("");
-        setConfirmPassword("");
-      })
-      .catch((error) => {
-        setPasswordErrMsg(
-          error?.response?.data?.error ||
-            "An unexpected error occurred. Please try again."
-        );
-      })
-      .finally(() => {
-        setPasswordLoaderBtn(false);
-      });
+  const getUserInitials = (n: string) => {
+    if (!n) return "U";
+    return n
+      .split(" ")
+      .map((p) => p[0])
+      .join("")
+      .toUpperCase()
+      .substring(0, 2);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Back button */}
-        <button
-          onClick={() => router.push("/")}
-          className="mb-6 flex items-center text-gray-600 hover:text-gray-800 transition-colors"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5 mr-1"
-            viewBox="0 0 20 20"
-            fill="currentColor"
+    <div className="space-y-6 max-w-4xl mx-auto pb-16">
+      {/* Back button & Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-(--color-border) pb-5">
+        <div>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="inline-flex items-center gap-2 text-xs font-semibold text-(--color-desc) hover:text-(--color-text) transition mb-2 cursor-pointer"
           >
-            <path
-              fillRule="evenodd"
-              d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Back to Dashboard
-        </button>
+            <ArrowLeft size={14} />
+            <span>Back to Dashboard</span>
+          </button>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-(--color-text) flex items-center gap-2.5">
+            <User className="text-blue-500" size={28} />
+            Account & Profile Settings
+          </h1>
+          <p className="text-xs sm:text-sm text-(--color-desc) mt-1">
+            Manage your personal identity, workspace bio, photo, and security credentials.
+          </p>
+        </div>
 
-        {userData ? (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            {/* Profile header */}
-            <div className="bg-linear-to-r from-blue-500 to-blue-600 p-6">
-              <div className="flex flex-col sm:flex-row items-center">
-                <div className="relative">
-                  {editForm?.profileImage ? (
-                    <img
-                      src={URL.createObjectURL(editForm.profileImage)}
-                      alt="Profile preview"
-                      className="w-24 h-24 rounded-full border-4 border-white shadow-md object-cover"
-                    />
-                  ) : userData?.avatar ? (
-                    <img
-                      src={userData.avatar}
-                      alt={`${userData.name}'s profile`}
-                      className="w-24 h-24 rounded-full border-4 border-white shadow-md object-cover"
-                    />
-                  ) : (
-                    <CgProfile className="w-24 h-24 rounded-full border-4 border-white shadow-md object-cover" />
-                  )}
+        {/* Account Badge */}
+        <div className="flex items-center gap-2">
+          <div className="px-3 py-1.5 rounded-xl border border-(--color-border) bg-(--card-bg) text-xs font-semibold text-(--color-text) shadow-xs flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5 text-blue-500" />
+            <span className="capitalize">
+              {authProvider === "google" ? "Google Account" : "Credentials Verified"}
+            </span>
+          </div>
+        </div>
+      </div>
 
-                  {/* Hidden input */}
-                  {isEditing && (
-                    <>
-                      <input
-                        id="avatar-upload"
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            profileImage: e.target.files[0],
-                          })
-                        }
-                      />
-                      <label htmlFor="avatar-upload">
-                        <MdEdit
-                          className="absolute bottom-0 left-2 cursor-pointer bg-blue-500 p-1 rounded-full"
-                          size={30}
-                          color="#fff"
-                        />
-                      </label>
-                    </>
-                  )}
-                </div>
+      {/* TOP USER BANNER */}
+      <div className="rounded-3xl border border-(--color-border) bg-(--card-bg) shadow-xs overflow-hidden">
+        {/* Cover Header */}
+        <div className="h-28 sm:h-36 bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 relative p-4 flex items-end justify-end">
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-black/30 backdrop-blur-md text-white border border-white/20">
+            Taskaro Workspace ID • {session?.user?.email?.split("@")[0] || "member"}
+          </span>
+        </div>
 
-                <div className="mt-4 sm:mt-0 sm:ml-6 text-center sm:text-left">
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        name="name"
-                        value={editForm.name}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 bg-white bg-opacity-80 rounded text-xl font-bold text-gray-800"
-                      />
-                      <p className="text-blue-100">{userData.email}</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <h1 className="text-2xl font-bold text-white">
-                        {userData.name}
-                      </h1>
-                      <p className="text-blue-100">{userData.email}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Profile tabs */}
-            <div className="border-b border-gray-200">
-              <nav className="flex -mb-px">
-                <button
-                  onClick={() => setActiveTab("overview")}
-                  className={`px-4 py-3 text-sm font-medium ${
-                    activeTab === "overview"
-                      ? "border-b-2 border-blue-500 text-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  Overview
-                </button>
-                <button
-                  onClick={() => setActiveTab("tasks")}
-                  className={`px-4 py-3 text-sm font-medium ${
-                    activeTab === "tasks"
-                      ? "border-b-2 border-blue-500 text-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  My Tasks
-                </button>
-                <button
-                  onClick={() => setActiveTab("settings")}
-                  className={`px-4 py-3 text-sm font-medium ${
-                    activeTab === "settings"
-                      ? "border-b-2 border-blue-500 text-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  Settings
-                </button>
-              </nav>
-            </div>
-
-            {/* Profile content */}
-            <div className="p-6">
-              {activeTab === "overview" && (
-                <div className="space-y-6">
-                  {/* Stats */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-lg text-center">
-                      <div className="text-2xl font-bold text-green-600">
-                        {stats.completed}
-                      </div>
-                      <div className="text-sm text-gray-500">Completed</div>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg text-center">
-                      <div className="text-2xl font-bold text-yellow-600">
-                        {stats.pending}
-                      </div>
-                      <div className="text-sm text-gray-500">Pending</div>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg text-center">
-                      <div className="text-2xl font-bold text-red-600">
-                        {stats.overdue}
-                      </div>
-                      <div className="text-sm text-gray-500">Overdue</div>
-                    </div>
-                  </div>
-
-                  {/* Bio */}
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
-                      About
-                    </h3>
-                    {isEditing ? (
-                      <textarea
-                        name="bio"
-                        value={editForm.bio}
-                        onChange={handleChange}
-                        rows={4}
-                        className="w-full px-3 py-2 bg-gray-50 rounded border border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    ) : (
-                      <p className="text-gray-600">
-                        {userData.bio || "No bio provided."}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Member since */}
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
-                      Member Since
-                    </h3>
-                    <p className="text-gray-600">
-                      {formatDate(userData.joinedAt)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "tasks" && (
-                <div className="space-y-4">
-                  {tasks.length > 0 ? (
-                    tasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-medium text-gray-900">
-                              {task.title}
-                            </h4>
-                            <p className="text-sm text-gray-500">
-                              Due: {formatDate(task.dueDate)}
-                            </p>
-                          </div>
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              task.status === "completed"
-                                ? "bg-green-100 text-green-800"
-                                : task.status === "pending"
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                            }`}
-                          >
-                            {task.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-500 text-center py-8">
-                      No tasks found.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "settings" &&
-                (isChangePassword ? (
-                  <div>
-                    {/* Header */}
-                    <div className="mb-6">
-                      <FaBackwardFast
-                        onClick={() => setIsChangePassword(false)}
-                        className="cursor-pointer"
-                        size={"25"}
-                      />
-                      <h3 className="text-xl font-semibold text-gray-900 pt-2">
-                        Secure Your Account
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-600">
-                        To reset your password, we’ll first verify that this
-                        account belongs to you. An OTP will be sent to your
-                        registered email address.
-                      </p>
-                    </div>
-
-                    <div className="space-y-6">
-                      {changeScreen === null ? (
-                        // STEP 1: OTP Sent
-                        <>
-                          <button
-                            onClick={handleValidateEmail}
-                            type="button"
-                            disabled={passwordLoaderBtn}
-                            className="mt-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-                          >
-                            Send Code
-                          </button>
-                          {passwordErrMsg && (
-                            <p
-                              className="text-sm text-red-600 font-bold uppercase"
-                              style={{ wordSpacing: "0.15em" }}
-                            >
-                              * {passwordErrMsg}
-                            </p>
-                          )}
-                        </>
-                      ) : changeScreen === 1 ? (
-                        // STEP 2: OTP Verification
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Email Verification Code
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="Enter 6-digit OTP"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            maxLength={6}
-                            value={otp}
-                            onChange={(e) => {
-                              setPasswordErrMsg("");
-                              const value = e.target.value.replace(/\D/g, ""); // remove non-numbers
-                              if (value.length <= 6) {
-                                setOtp(value);
-                              }
-                            }}
-                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          />
-                          <p className="mt-2 text-xs text-gray-500">
-                            We’ve sent a one-time verification code to your
-                            email.
-                          </p>
-                          {passwordErrMsg && (
-                            <p className="text-sm text-red-600 font-semibold mt-2">
-                              * {passwordErrMsg}
-                            </p>
-                          )}
-                          <button
-                            type="button"
-                            onClick={handleVerifyOtp}
-                            disabled={otp.length !== 6 || passwordLoaderBtn}
-                            className={`mt-3 inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white
-                            ${
-                              otp.length === 6
-                                ? "bg-blue-600 hover:bg-blue-700"
-                                : "bg-gray-400 cursor-not-allowed"
-                            }`}
-                          >
-                            {passwordLoaderBtn ? "Verifying..." : "Verify Code"}
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          {/* STEP 3: set new Password */}
-                          {/* New Password */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              New Password
-                            </label>
-                            <input
-                              type="password"
-                              value={newPassword}
-                              onChange={(e) => {
-                                setPasswordErrMsg("");
-                                setNewPassword(e.target.value);
-                              }}
-                              placeholder="Enter new password"
-                              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            />
-                            <p className="mt-1 text-xs text-gray-500">
-                              Must be at least 8 characters long.
-                            </p>
-                          </div>
-
-                          {/* Confirm Password */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Confirm New Password
-                            </label>
-                            <input
-                              type="password"
-                              value={confirmPassword}
-                              onChange={(e) => {
-                                setPasswordErrMsg("");
-                                setConfirmPassword(e.target.value);
-                              }}
-                              placeholder="Re-enter new password"
-                              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            />
-                          </div>
-                          {passwordErrMsg && (
-                            <p className="text-sm text-red-600 font-semibold mt-2">
-                              * {passwordErrMsg}
-                            </p>
-                          )}
-
-                          {/* Action */}
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={handleResetpassword}
-                              disabled={
-                                passwordLoaderBtn ||
-                                newPassword.length < 8 ||
-                                confirmPassword !== newPassword
-                              }
-                              className={`inline-flex items-center px-6 py-2 text-sm font-medium rounded-md text-white
-                                ${
-                                  newPassword.length >= 8 &&
-                                  confirmPassword === newPassword
-                                    ? "bg-blue-600 hover:bg-blue-700"
-                                    : "bg-gray-400 cursor-not-allowed"
-                                }`}
-                            >
-                              {passwordLoaderBtn
-                                ? "Updating..."
-                                : "Update Password"}
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
+        {/* Profile Card Body */}
+        <div className="px-5 sm:px-8 pb-6 pt-0 relative flex flex-col sm:flex-row sm:items-end justify-between gap-4 -mt-12 sm:-mt-14">
+          <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
+            {/* Avatar with Upload Button */}
+            <div className="relative group">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl border-4 border-(--card-bg) shadow-lg overflow-hidden bg-zinc-800 flex items-center justify-center shrink-0">
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                ) : avatarUrl ? (
+                  <img src={avatarUrl} alt={name || "User"} className="w-full h-full object-cover" />
                 ) : (
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
-                      Account Settings
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="sm:grid sm:grid-cols-3 sm:gap-4">
-                        <label className="block text-sm font-medium text-gray-700 sm:mt-px sm:pt-2">
-                          Password
-                        </label>
-                        <div className="mt-1 sm:mt-0 sm:col-span-2">
-                          <button
-                            type="button"
-                            onClick={handlePassword}
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                          >
-                            Change Password
-                          </button>
-                        </div>
-                      </div>
-                      <div className="sm:grid sm:grid-cols-3 sm:gap-4">
-                        <label className="block text-sm font-medium text-gray-700 sm:mt-px sm:pt-2">
-                          Notifications
-                        </label>
-                        <div className="mt-1 sm:mt-0 sm:col-span-2">
-                          <div className="flex items-center">
-                            <input
-                              id="task-notifications"
-                              name="task-notifications"
-                              type="checkbox"
-                              defaultChecked
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <label
-                              htmlFor="task-notifications"
-                              className="ml-2 block text-sm text-gray-700"
-                            >
-                              Task reminders
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="sm:grid sm:grid-cols-3 sm:gap-4">
-                        <label className="block text-sm font-medium text-gray-700 sm:mt-px sm:pt-2">
-                          Theme
-                        </label>
-                        <div className="mt-1 sm:mt-0 sm:col-span-2">
-                          <select
-                            className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            defaultValue="light"
-                          >
-                            <option value="light">Light</option>
-                            <option value="dark">Dark</option>
-                            <option value="system">System</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="w-full h-full bg-linear-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-3xl font-extrabold">
+                    {getUserInitials(name)}
                   </div>
-                ))}
-            </div>
-
-            {/* Edit/Save buttons */}
-            {activeTab !== "settings" && (
-              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end space-x-3">
-                {isEditing ? (
-                  <>
-                    <button
-                      onClick={handleSave}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                      Save Changes
-                    </button>
-                    <button
-                      onClick={handleCancel}
-                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={handleEdit}
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  >
-                    Edit Profile
-                  </button>
                 )}
               </div>
-            )}
+
+              {/* Upload Trigger Icon */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Change profile avatar"
+                className="absolute -bottom-1 -right-1 p-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-md transition cursor-pointer border-2 border-(--card-bg)"
+              >
+                <Camera size={14} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/jpg"
+                onChange={handleAvatarChange}
+                className="hidden"
+              />
+            </div>
+
+            {/* Name & Email info */}
+            <div className="space-y-1">
+              <h2 className="text-xl sm:text-2xl font-bold text-(--color-text) flex items-center justify-center sm:justify-start gap-2">
+                <span>{name || "Taskaro Member"}</span>
+                {authProvider === "google" && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                    Google Connected
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-(--color-desc) flex items-center justify-center sm:justify-start gap-1">
+                <Mail size={12} />
+                <span>{email}</span>
+              </p>
+            </div>
           </div>
-        ) : (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+
+          {/* Quick Stat Pill */}
+          <div className="flex items-center justify-center gap-3 text-xs text-(--color-desc)">
+            <span className="px-3 py-1 rounded-xl bg-(--hover-card-bg) border border-(--color-border)">
+              {userStats.totalTasks} Tasks Created
+            </span>
+            <span className="px-3 py-1 rounded-xl bg-(--hover-card-bg) border border-(--color-border)">
+              {userStats.totalHabits} Habits Active
+            </span>
           </div>
-        )}
+        </div>
       </div>
+
+      {/* NAVIGATION TABS */}
+      <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-(--card-bg) border border-(--color-border) shadow-xs text-xs font-semibold">
+        <button
+          type="button"
+          onClick={() => setActiveTab("profile")}
+          className={`flex-1 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            activeTab === "profile"
+              ? "bg-blue-600 text-white shadow-xs"
+              : "text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg)"
+          }`}
+        >
+          <User size={14} />
+          <span>General Profile</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("security")}
+          className={`flex-1 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            activeTab === "security"
+              ? "bg-blue-600 text-white shadow-xs"
+              : "text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg)"
+          }`}
+        >
+          <KeyRound size={14} />
+          <span>Security & Password</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("stats")}
+          className={`flex-1 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            activeTab === "stats"
+              ? "bg-blue-600 text-white shadow-xs"
+              : "text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg)"
+          }`}
+        >
+          <Activity size={14} />
+          <span>Workspace Overview</span>
+        </button>
+      </div>
+
+      {/* TAB 1: GENERAL PROFILE FORM */}
+      {activeTab === "profile" && (
+        <form
+          onSubmit={handleSaveProfile}
+          className="p-6 sm:p-8 rounded-3xl border border-(--color-border) bg-(--card-bg) space-y-6 shadow-xs"
+        >
+          <div>
+            <h3 className="text-base font-bold text-(--color-text) flex items-center gap-2">
+              <Sparkles size={16} className="text-blue-500" />
+              <span>Personal Information</span>
+            </h3>
+            <p className="text-xs text-(--color-desc) mt-0.5">
+              Update your public display name, phone number, and personal statement.
+            </p>
+          </div>
+
+          {/* Feedback Alerts */}
+          {profileSuccess && (
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+              <CheckCircle2 size={16} />
+              <span>{profileSuccess}</span>
+            </div>
+          )}
+
+          {profileError && (
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+              <AlertCircle size={16} />
+              <span>{profileError}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {/* Full Name */}
+            <div>
+              <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
+                Full Name *
+              </label>
+              <div className="relative">
+                <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-(--color-desc)" />
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full text-xs pl-10 pr-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-blue-500/30 font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Phone */}
+            <div>
+              <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
+                Phone Number (Optional)
+              </label>
+              <div className="relative">
+                <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-(--color-desc)" />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. +91 9876543210"
+                  className="w-full text-xs pl-10 pr-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-blue-500/30 font-medium"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Email (Readonly) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-(--color-text)">
+                Registered Email Address
+              </label>
+              <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
+                <CheckCircle2 size={12} /> Verified Primary ID
+              </span>
+            </div>
+            <div className="relative">
+              <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-(--color-desc)" />
+              <input
+                type="email"
+                readOnly
+                value={email}
+                className="w-full text-xs pl-10 pr-3.5 py-2.5 rounded-xl bg-(--hover-card-bg)/50 border border-(--color-border) text-(--color-desc) cursor-not-allowed outline-none select-none"
+              />
+            </div>
+          </div>
+
+          {/* Bio / About */}
+          <div>
+            <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
+              Workspace Bio & Manifesto
+            </label>
+            <textarea
+              rows={3}
+              value={about}
+              onChange={(e) => setAbout(e.target.value)}
+              placeholder="A short manifesto about your goals, habits, or professional background..."
+              className="w-full text-xs px-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) placeholder:text-(--color-desc) outline-none focus:ring-2 focus:ring-blue-500/30 resize-none font-medium"
+            />
+          </div>
+
+          {/* Action Buttons */}
+          <div className="pt-3 border-t border-(--color-border) flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                const u: any = session?.user;
+                setName(u?.name || "");
+                setAbout(u?.about || "");
+                setPhone(u?.phone || "");
+                setPreviewUrl(null);
+                setSelectedFile(null);
+              }}
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold border border-(--color-border) bg-(--hover-card-bg) text-(--color-desc) hover:text-(--color-text) transition cursor-pointer"
+            >
+              Reset
+            </button>
+
+            <button
+              type="submit"
+              disabled={savingProfile}
+              className="px-6 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition cursor-pointer flex items-center gap-2 shadow-xs"
+            >
+              {savingProfile ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving Changes...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  <span>Save Profile Changes</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* TAB 2: SECURITY & PASSWORD */}
+      {activeTab === "security" && (
+        <div className="p-6 sm:p-8 rounded-3xl border border-(--color-border) bg-(--card-bg) space-y-6 shadow-xs">
+          <div>
+            <h3 className="text-base font-bold text-(--color-text) flex items-center gap-2">
+              <Lock size={16} className="text-blue-500" />
+              <span>Security & Password Management</span>
+            </h3>
+            <p className="text-xs text-(--color-desc) mt-0.5">
+              Secure your account credentials using two-factor identity email verification.
+            </p>
+          </div>
+
+          {/* Feedback Alerts */}
+          {securitySuccess && (
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+              <CheckCircle2 size={16} />
+              <span>{securitySuccess}</span>
+            </div>
+          )}
+
+          {securityError && (
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+              <AlertCircle size={16} />
+              <span>{securityError}</span>
+            </div>
+          )}
+
+          {/* If Account is Google Single Sign-On */}
+          {authProvider === "google" ? (
+            <div className="p-6 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs space-y-2">
+              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-sm">
+                <Shield size={18} />
+                <span>Google OAuth Protected Account</span>
+              </div>
+              <p className="text-(--color-desc) leading-relaxed">
+                Your account is authenticated via Google Single Sign-On. Your password, multi-factor authentication, and account access recovery are securely managed directly through your Google Account settings.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Step 1: Initial Request OTP */}
+              {securityStep === "initial" && (
+                <div className="p-5 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 mt-0.5">
+                      <KeyRound size={20} />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-(--color-text)">
+                        Two-Step Password Verification
+                      </h4>
+                      <p className="text-xs text-(--color-desc) leading-relaxed">
+                        To protect your account, we will send a 6-digit confirmation code to your registered email (<strong>{email}</strong>).
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSendOtp}
+                    disabled={securityLoading}
+                    className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition cursor-pointer flex items-center gap-2 shadow-xs"
+                  >
+                    {securityLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending Code...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail size={14} />
+                        <span>Send Verification OTP</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Step 2: Verify OTP */}
+              {securityStep === "otp" && (
+                <form
+                  onSubmit={handleVerifyOtp}
+                  className="p-5 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-4"
+                >
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-(--color-text)">
+                      Enter Verification Code
+                    </h4>
+                    <p className="text-xs text-(--color-desc)">
+                      We sent a 6-digit code to <strong>{email}</strong>. Enter it below to unlock the password change form.
+                    </p>
+                  </div>
+
+                  <div className="max-w-xs">
+                    <input
+                      type="text"
+                      maxLength={6}
+                      autoFocus
+                      required
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                      placeholder="• • • • • •"
+                      className="w-full text-center text-xl font-mono font-bold tracking-widest px-3 py-2.5 rounded-xl bg-(--card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-blue-500/30"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={securityLoading || otp.length < 4}
+                      className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition cursor-pointer flex items-center gap-2"
+                    >
+                      {securityLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Verifying...</span>
+                        </>
+                      ) : (
+                        <span>Verify Code</span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={securityLoading}
+                      className="text-xs text-blue-500 hover:underline cursor-pointer"
+                    >
+                      Resend Code
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Step 3: Set New Password */}
+              {securityStep === "password" && (
+                <form
+                  onSubmit={handleUpdatePassword}
+                  className="p-5 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-4"
+                >
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-(--color-text)">
+                      Set Your New Password
+                    </h4>
+                    <p className="text-xs text-(--color-desc)">
+                      Your identity is verified. Choose a strong password with at least 8 characters.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* New Password */}
+                    <div>
+                      <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
+                        New Password *
+                      </label>
+                      <div className="relative">
+                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-(--color-desc)" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Min 8 characters"
+                          className="w-full text-xs pl-10 pr-10 py-2.5 rounded-xl bg-(--card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-blue-500/30"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-(--color-desc) hover:text-(--color-text)"
+                        >
+                          {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Confirm Password */}
+                    <div>
+                      <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
+                        Confirm New Password *
+                      </label>
+                      <div className="relative">
+                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-(--color-desc)" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Repeat new password"
+                          className="w-full text-xs pl-10 pr-10 py-2.5 rounded-xl bg-(--card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-blue-500/30"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-3">
+                    <button
+                      type="submit"
+                      disabled={securityLoading}
+                      className="px-6 py-2.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 transition cursor-pointer flex items-center gap-2 shadow-xs"
+                    >
+                      {securityLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Updating Password...</span>
+                        </>
+                      ) : (
+                        <span>Update Password</span>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: WORKSPACE OVERVIEW & STATS */}
+      {activeTab === "stats" && (
+        <div className="p-6 sm:p-8 rounded-3xl border border-(--color-border) bg-(--card-bg) space-y-6 shadow-xs">
+          <div>
+            <h3 className="text-base font-bold text-(--color-text) flex items-center gap-2">
+              <Activity size={16} className="text-blue-500" />
+              <span>Workspace Productivity Audit</span>
+            </h3>
+            <p className="text-xs text-(--color-desc) mt-0.5">
+              Live statistics connected to your actual MongoDB task records and habits.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-1">
+              <div className="text-xs text-(--color-desc) flex items-center gap-1.5 font-medium">
+                <CheckSquare size={14} className="text-blue-500" /> Total Tasks
+              </div>
+              <p className="text-2xl font-bold text-(--color-text)">
+                {statsLoading ? "—" : userStats.totalTasks}
+              </p>
+              <p className="text-[11px] text-(--color-desc)">Across all priorities</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-1">
+              <div className="text-xs text-(--color-desc) flex items-center gap-1.5 font-medium">
+                <CheckCircle2 size={14} className="text-emerald-500" /> Completed
+              </div>
+              <p className="text-2xl font-bold text-emerald-500">
+                {statsLoading ? "—" : userStats.completedTasks}
+              </p>
+              <p className="text-[11px] text-(--color-desc)">Tasks marked done</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-1">
+              <div className="text-xs text-(--color-desc) flex items-center gap-1.5 font-medium">
+                <Flame size={14} className="text-amber-500" /> Daily Habits
+              </div>
+              <p className="text-2xl font-bold text-amber-500">
+                {statsLoading ? "—" : userStats.totalHabits}
+              </p>
+              <p className="text-[11px] text-(--color-desc)">Routines tracked</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-1">
+              <div className="text-xs text-(--color-desc) flex items-center gap-1.5 font-medium">
+                <BellRing size={14} className="text-purple-500" /> Smart Alarms
+              </div>
+              <p className="text-2xl font-bold text-purple-500">
+                {statsLoading ? "—" : userStats.totalAlarms}
+              </p>
+              <p className="text-[11px] text-(--color-desc)">Configured schedules</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) flex items-center justify-between text-xs">
+            <span className="text-(--color-desc)">
+              Want to see deep execution velocity and day-of-week rhythms?
+            </span>
+            <Link
+              href="/dashboard/reports"
+              className="font-semibold text-blue-500 hover:text-blue-600 transition"
+            >
+              Open Full Analytics Suite &rarr;
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default ProfilePage;
+}

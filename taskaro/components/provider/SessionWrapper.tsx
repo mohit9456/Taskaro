@@ -1,33 +1,13 @@
 "use client";
 
 import { SessionProvider } from "next-auth/react";
-import React, { useEffect } from "react";
-import { useAlarmSystem } from "../useAlarmSystem";
+import React from "react";
+import AlarmProvider from "./AlarmProvider";
 
 export default function SessionWrapper({ children }: { children: React.ReactNode }) {
-  useAlarmSystem();
-
-  // Audio unlock for web autoplay policies
-  useEffect(() => {
-    const unlock = () => {
-      const a = new Audio("/alarm.wav");
-      a.play()
-        .then(() => {
-          a.pause();
-          a.currentTime = 0;
-          console.log("🔓 Audio unlocked");
-        })
-        .catch(() => {});
-
-      document.removeEventListener("click", unlock);
-    };
-
-    document.addEventListener("click", unlock);
-    return () => {
-      document.removeEventListener("click", unlock);
-    };
-  }, []);
-
-  return <SessionProvider>{children}</SessionProvider>;
+  return (
+    <SessionProvider>
+      <AlarmProvider>{children}</AlarmProvider>
+    </SessionProvider>
+  );
 }
-

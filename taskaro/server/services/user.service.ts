@@ -12,31 +12,48 @@ export async function getUserById(userId) {
   return user;
 }
 
-export async function updateUserProfile(email, formData) {
-  const name = formData.get("name");
-  const about = formData.get("about");
-  const file = formData.get("profileImage");
-
+export async function updateUserProfile(email: string, payload: any) {
   await connectToDatabase();
 
-  let imageUrl;
-  if (file && file.name) {
-    imageUrl = await uploadProfileImage(file);
+  let name: string | undefined;
+  let about: string | undefined;
+  let phone: string | undefined;
+  let file: any = null;
+
+  if (payload instanceof FormData || (payload && typeof payload.get === "function")) {
+    name = (payload.get("name") as string) || undefined;
+    about = (payload.get("about") as string) || undefined;
+    phone = (payload.get("phone") as string) || undefined;
+    file = payload.get("profileImage");
+  } else if (payload && typeof payload === "object") {
+    name = payload.name;
+    about = payload.about;
+    phone = payload.phone;
+    file = payload.file || payload.profileImage;
   }
+
+  let imageUrl: string | undefined;
+  if (file && typeof file === "object" && file.name && typeof file.arrayBuffer === "function") {
+    imageUrl = await uploadProfileImage(file);
+  } else if (typeof file === "string" && (file.startsWith("/uploads/") || file.startsWith("http"))) {
+    imageUrl = file;
+  }
+
+  const updateFields: any = {};
+  if (name !== undefined) updateFields.name = name.trim();
+  if (about !== undefined) updateFields.about = about.trim();
+  if (phone !== undefined) updateFields.phone = phone.trim();
+  if (imageUrl) updateFields.profileImage = imageUrl;
 
   const updatedUser = await User.findOneAndUpdate(
     { email },
-    {
-      name,
-      about,
-      ...(imageUrl && { profileImage: imageUrl }),
-    },
+    updateFields,
     { new: true }
-  );
+  ).select("-password");
 
   if (!updatedUser) {
     throw {
-      status: 400,
+      status: 404,
       message: "User not found",
     };
   }

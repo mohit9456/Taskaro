@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import AlarmPurposeSelector from "./AlarmPurposeSelector";
 import { protectedApiPost } from "@/lib/api";
+import { previewAlarmSound } from "@/lib/alarmAudio";
 import {
   Clock,
   Volume2,
@@ -14,6 +15,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Vibrate,
+  Play,
 } from "lucide-react";
 
 interface CreateAlarmProps {
@@ -208,10 +210,19 @@ export default function CreateAlarm({ onCreated }: CreateAlarmProps) {
       {/* Sound & Wake-Up Challenge Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-semibold text-(--color-text) mb-1.5 flex items-center gap-1.5">
-            <Volume2 className="w-4 h-4 text-blue-500" />
-            <span>Sound Profile</span>
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-semibold text-(--color-text) flex items-center gap-1.5">
+              <Volume2 className="w-4 h-4 text-blue-500" />
+              <span>Sound Profile</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => previewAlarmSound(sound)}
+              className="text-[11px] font-semibold text-blue-500 hover:text-blue-600 flex items-center gap-1 cursor-pointer"
+            >
+              <Play size={10} /> Test Sound
+            </button>
+          </div>
           <select
             value={sound}
             onChange={(e) => setSound(e.target.value as any)}

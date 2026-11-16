@@ -1,25 +1,42 @@
-// app/api/user/update/route.js
 import { updateUserProfile } from "@/server/services/user.service";
 
-export async function POST(req) {
+export async function POST(req: Request) {
   try {
     const email = req.headers.get("x-user-email");
-
     if (!email) {
-      return Response.json({ error: "Unauthorized user" }, { status: 401 });
+      return Response.json({ error: "Unauthorized access" }, { status: 401 });
     }
 
-    const formData = await req.formData();
+    const contentType = req.headers.get("content-type") || "";
+    let payload: any;
 
-    const updatedUser = await updateUserProfile(email, formData);
+    if (contentType.includes("multipart/form-data")) {
+      payload = await req.formData();
+    } else {
+      payload = await req.json();
+    }
 
-    return new Response(
-      JSON.stringify({ message: "Profile updated", user: updatedUser }),
+    const updatedUser = await updateUserProfile(email, payload);
+
+    return Response.json(
+      {
+        success: true,
+        message: "Profile updated successfully",
+        user: {
+          id: updatedUser._id.toString(),
+          name: updatedUser.name,
+          email: updatedUser.email,
+          about: updatedUser.about,
+          phone: updatedUser.phone,
+          profileImage: updatedUser.profileImage,
+          authProvider: updatedUser.authProvider,
+        },
+      },
       { status: 200 }
     );
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message || "Something went wrong" }),
+  } catch (error: any) {
+    return Response.json(
+      { error: error.message || "Something went wrong updating profile" },
       { status: error.status || 500 }
     );
   }
