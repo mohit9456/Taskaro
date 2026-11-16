@@ -1,6 +1,6 @@
 import { getTaskStatsService } from "@/server/services/task.service";
 
-export async function GET(req) {
+export async function GET(req: Request) {
   try {
     const email = req.headers.get("x-user-email");
     if (!email) {
@@ -8,17 +8,15 @@ export async function GET(req) {
     }
 
     const { searchParams } = new URL(req.url);
-    const filter = searchParams.get("filter");
+    const filter = searchParams.get("filter") || undefined;
 
     const data = await getTaskStatsService(email, filter);
 
-    return new Response(JSON.stringify({ success: true, data }), {
-      status: 200,
-    });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message || "Something went wrong" }),
-      { status: err.status || 500 },
+    return Response.json({ success: true, data }, { status: 200 });
+  } catch (err: any) {
+    return Response.json(
+      { error: err.message || "Something went wrong" },
+      { status: err.status || 500 }
     );
   }
 }

@@ -6,12 +6,10 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   PlusCircle,
   Calendar,
-  Clock,
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
   Loader2,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -28,14 +26,13 @@ export default function CreateTask() {
     title: "",
     description: "",
     priority: "medium" as "low" | "medium" | "high",
-    date: dateFromCalendar || new Date().toISOString().split("T")[0],
-    time: "10:00",
+    dueDate: dateFromCalendar || new Date().toISOString().split("T")[0],
     assignTo: "self",
   });
 
   useEffect(() => {
     if (dateFromCalendar) {
-      setForm((prev) => ({ ...prev, date: dateFromCalendar }));
+      setForm((prev) => ({ ...prev, dueDate: dateFromCalendar }));
     }
   }, [dateFromCalendar]);
 
@@ -52,21 +49,18 @@ export default function CreateTask() {
     try {
       setLoading(true);
 
-      // Combine date and time
-      const [year, month, day] = form.date.split("-").map(Number);
-      const [hours, minutes] = (form.time || "10:00").split(":").map(Number);
-      const dueDate = new Date(year, month - 1, day, hours, minutes, 0).toISOString();
-
       const payload = {
         title: form.title.trim(),
         description: form.description.trim(),
         priority: form.priority,
-        dueDate,
+        dueDate: form.dueDate
+          ? new Date(form.dueDate).toISOString()
+          : new Date().toISOString(),
         assignTo: "self",
       };
 
       await protectedApiPost("/secure/tasks/create", payload);
-      setSuccessMessage("Task created and scheduled successfully!");
+      setSuccessMessage("Task created successfully!");
 
       // Reset title and description
       setForm((prev) => ({
@@ -75,14 +69,14 @@ export default function CreateTask() {
         description: "",
       }));
 
-      // After 1.5 seconds, navigate to My Tasks or Calendar
+      // Redirect
       setTimeout(() => {
         if (dateFromCalendar) {
           router.push("/dashboard/calendar");
         } else {
           router.push("/dashboard/my-tasks");
         }
-      }, 1200);
+      }, 1000);
     } catch (err: any) {
       console.error("Create task error:", err);
       setErrorMessage(
@@ -96,7 +90,7 @@ export default function CreateTask() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
       {/* Header with Back Link */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -129,7 +123,7 @@ export default function CreateTask() {
       {successMessage && (
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm flex items-center gap-2.5 animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
-          <span>{successMessage} Redirecting to your schedule...</span>
+          <span>{successMessage} Redirecting...</span>
         </div>
       )}
 
@@ -143,58 +137,59 @@ export default function CreateTask() {
       {/* Main Task Form Card */}
       <form
         onSubmit={handleSubmit}
-        className="bg-(--card-bg) border border-(--color-border) rounded-2xl p-6 sm:p-8 shadow-xs space-y-6 transition-colors"
+        className="bg-(--card-bg) border border-(--color-border) rounded-3xl p-6 sm:p-8 shadow-xs space-y-5 transition-colors"
       >
         {/* Title */}
-        <div>
-          <label className="block text-xs sm:text-sm font-semibold text-(--color-text) mb-2">
-            Task Title <span className="text-red-500">*</span>
+        <div className="space-y-1">
+          <label className="block text-xs font-semibold text-(--color-text)">
+            Task Title *
           </label>
           <input
             type="text"
             required
-            placeholder="e.g. Design quarterly roadmap, Refactor auth routes..."
+            autoFocus
+            placeholder="e.g. Design quarterly roadmap, Review sprint backlog..."
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
-            className="w-full px-4 py-3 rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) text-sm outline-none focus:border-(--color-primary) transition-colors placeholder:text-(--color-desc)"
+            className="w-full text-sm px-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) placeholder:text-(--color-desc) outline-none focus:ring-2 focus:ring-(--color-primary)/30 transition-all"
           />
         </div>
 
         {/* Description */}
-        <div>
-          <label className="block text-xs sm:text-sm font-semibold text-(--color-text) mb-2">
-            Description
+        <div className="space-y-1">
+          <label className="block text-xs font-semibold text-(--color-text)">
+            Description & Details
           </label>
           <textarea
             rows={4}
             placeholder="Provide context, acceptance criteria, sub-items, or useful links..."
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="w-full px-4 py-3 rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) text-sm outline-none focus:border-(--color-primary) transition-colors placeholder:text-(--color-desc) resize-none"
+            className="w-full text-sm px-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) placeholder:text-(--color-desc) outline-none focus:ring-2 focus:ring-(--color-primary)/30 transition-all resize-none"
           />
         </div>
 
-        {/* Priority & Assignment */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {/* Priority & Due Date Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Priority */}
-          <div>
-            <label className="block text-xs sm:text-sm font-semibold text-(--color-text) mb-2">
-              Priority
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-(--color-text)">
+              Priority Level
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-1 rounded-xl bg-(--hover-card-bg) p-1 border border-(--color-border)">
               {(["low", "medium", "high"] as const).map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setForm({ ...form, priority: p })}
-                  className={`py-2.5 px-3 text-xs font-semibold rounded-xl border capitalize transition-all cursor-pointer ${
+                  className={`py-1.5 rounded-lg text-xs font-bold capitalize transition-colors cursor-pointer ${
                     form.priority === p
                       ? p === "high"
-                        ? "bg-red-500/10 border-red-500 text-red-600 dark:text-red-400 font-bold shadow-xs"
+                        ? "bg-rose-500 text-white shadow-xs"
                         : p === "medium"
-                        ? "bg-amber-500/10 border-amber-500 text-amber-600 dark:text-amber-400 font-bold shadow-xs"
-                        : "bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400 font-bold shadow-xs"
-                      : "border-(--color-border) text-(--color-desc) hover:bg-(--hover-card-bg)"
+                        ? "bg-amber-500 text-white shadow-xs"
+                        : "bg-blue-500 text-white shadow-xs"
+                      : "text-(--color-desc) hover:text-(--color-text)"
                   }`}
                 >
                   {p}
@@ -203,67 +198,37 @@ export default function CreateTask() {
             </div>
           </div>
 
-          {/* Assigned To */}
-          <div>
-            <label className="block text-xs sm:text-sm font-semibold text-(--color-text) mb-2">
-              Assigned To
-            </label>
-            <select
-              value={form.assignTo}
-              onChange={(e) => setForm({ ...form, assignTo: e.target.value })}
-              className="w-full py-2.5 px-3.5 rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) text-xs sm:text-sm outline-none focus:border-(--color-primary) cursor-pointer"
-            >
-              <option value="self">Myself (Self)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Date and Time */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-xs sm:text-sm font-semibold text-(--color-text) mb-2 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-blue-500" />
-              <span>Due Date</span>
+          {/* Target Due Date */}
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-(--color-text)">
+              Target Due Date
             </label>
             <input
               type="date"
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) text-xs sm:text-sm outline-none focus:border-(--color-primary)"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs sm:text-sm font-semibold text-(--color-text) mb-2 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-blue-500" />
-              <span>Due Time</span>
-            </label>
-            <input
-              type="time"
-              value={form.time}
-              onChange={(e) => setForm({ ...form, time: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) text-xs sm:text-sm outline-none focus:border-(--color-primary)"
+              value={form.dueDate}
+              onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+              className="w-full text-xs px-3 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-(--color-primary)/30"
             />
           </div>
         </div>
 
-        {/* Submit Button */}
-        <div className="pt-4 border-t border-(--color-border) flex items-center justify-end gap-3">
+        {/* Actions */}
+        <div className="pt-3 border-t border-(--color-border) flex items-center justify-end gap-3">
           <Link
             href="/dashboard/my-tasks"
-            className="px-5 py-2.5 rounded-xl border border-(--color-border) bg-(--card-bg) hover:bg-(--hover-card-bg) text-(--color-text) text-xs sm:text-sm font-medium transition cursor-pointer"
+            className="px-4 py-2 rounded-xl border border-(--color-border) bg-(--card-bg) hover:bg-(--hover-card-bg) text-(--color-text) text-xs sm:text-sm font-medium transition cursor-pointer"
           >
             Cancel
           </Link>
           <button
             type="submit"
             disabled={loading}
-            className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold transition flex items-center gap-2 shadow-xs disabled:opacity-50 cursor-pointer"
+            className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
           >
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Creating Task...</span>
+                <span>Creating...</span>
               </>
             ) : (
               <>

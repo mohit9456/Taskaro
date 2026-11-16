@@ -305,9 +305,17 @@ export default function MyTasksContent() {
   }, [tasks, filterStatus, filterPriority, searchQuery, sortBy]);
 
   // Due date status formatting
-  const getDueDateLabel = (dueDateString?: string) => {
+  const getDueDateLabel = (dueDateString?: string, isDone: boolean = false) => {
     if (!dueDateString) return null;
     const due = new Date(dueDateString);
+
+    if (isDone) {
+      return {
+        text: "Completed",
+        color: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20",
+      };
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dueDay = new Date(due);
@@ -551,7 +559,7 @@ export default function MyTasksContent() {
             filteredTasks.map((task) => {
               const isDone = task.status === "done";
               const isSelected = selectedIds.includes(task._id);
-              const dueInfo = getDueDateLabel(task.dueDate);
+              const dueInfo = getDueDateLabel(task.dueDate, isDone);
 
               return (
                 <div

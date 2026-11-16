@@ -6,7 +6,6 @@ import "react-calendar/dist/Calendar.css";
 import { protectedApiGet, protectedApiPost } from "@/lib/api";
 import {
   CalendarDays,
-  Clock,
   Plus,
   CheckCircle2,
   Circle,
@@ -16,12 +15,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  Check,
   Loader2,
   Calendar as CalendarIcon,
   X,
-  ListTodo,
-  AlertTriangle,
   ArrowRight,
   CalendarCheck2,
 } from "lucide-react";
@@ -52,21 +48,20 @@ export default function CalendarSection() {
   const [quickTitle, setQuickTitle] = useState("");
   const [isQuickAdding, setIsQuickAdding] = useState(false);
 
-  // Modal State for full Task Create / Edit
+  // Modal State for full Task Create / Edit (Standard unified fields across app)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<CalendarTask | null>(null);
   const [modalForm, setModalForm] = useState({
     title: "",
     description: "",
     priority: "medium" as "low" | "medium" | "high",
-    date: new Date().toISOString().split("T")[0],
-    time: "10:00",
+    dueDate: new Date().toISOString().split("T")[0],
     status: "todo" as "todo" | "inprogress" | "done",
   });
   const [modalError, setModalError] = useState("");
   const [isModalSaving, setIsModalSaving] = useState(false);
 
-  // Delete modal / inline feedback
+  // Delete feedback
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Fetch tasks
@@ -178,14 +173,11 @@ export default function CalendarSection() {
 
     try {
       setIsQuickAdding(true);
-      const dueDate = new Date(selectedDate);
-      dueDate.setHours(12, 0, 0, 0);
-
       const payload = {
         title: quickTitle.trim(),
         description: "",
         priority: "medium",
-        dueDate: dueDate.toISOString(),
+        dueDate: selectedDate.toISOString(),
         assignTo: "self",
       };
 
@@ -224,8 +216,7 @@ export default function CalendarSection() {
       title: "",
       description: "",
       priority: "medium",
-      date: dateStr,
-      time: "10:00",
+      dueDate: dateStr,
       status: "todo",
     });
     setModalError("");
@@ -236,13 +227,11 @@ export default function CalendarSection() {
   const handleOpenEditModal = (task: CalendarTask) => {
     setEditingTask(task);
     let dateStr = selectedDate.toISOString().split("T")[0];
-    let timeStr = "10:00";
 
     if (task.dueDate) {
       const d = new Date(task.dueDate);
       if (!isNaN(d.getTime())) {
         dateStr = d.toISOString().split("T")[0];
-        timeStr = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
       }
     }
 
@@ -250,8 +239,7 @@ export default function CalendarSection() {
       title: task.title,
       description: task.description || "",
       priority: task.priority || "medium",
-      date: dateStr,
-      time: timeStr,
+      dueDate: dateStr,
       status: task.status || "todo",
     });
     setModalError("");
@@ -270,13 +258,9 @@ export default function CalendarSection() {
       setIsModalSaving(true);
       setModalError("");
 
-      let combinedDueDate = new Date().toISOString();
-      if (modalForm.date) {
-        const [year, month, day] = modalForm.date.split("-").map(Number);
-        const [hours, minutes] = (modalForm.time || "10:00").split(":").map(Number);
-        const d = new Date(year, month - 1, day, hours, minutes, 0);
-        combinedDueDate = d.toISOString();
-      }
+      const finalDueDate = modalForm.dueDate
+        ? new Date(modalForm.dueDate).toISOString()
+        : new Date().toISOString();
 
       if (editingTask) {
         // Edit existing task
@@ -286,7 +270,7 @@ export default function CalendarSection() {
           description: modalForm.description.trim(),
           priority: modalForm.priority,
           status: modalForm.status,
-          dueDate: combinedDueDate,
+          dueDate: finalDueDate,
         };
 
         const res = await protectedApiPost("/secure/tasks/update", payload);
@@ -304,7 +288,7 @@ export default function CalendarSection() {
                     description: modalForm.description.trim(),
                     priority: modalForm.priority,
                     status: modalForm.status,
-                    dueDate: combinedDueDate,
+                    dueDate: finalDueDate,
                   }
                 : t
             )
@@ -316,7 +300,7 @@ export default function CalendarSection() {
           title: modalForm.title.trim(),
           description: modalForm.description.trim(),
           priority: modalForm.priority,
-          dueDate: combinedDueDate,
+          dueDate: finalDueDate,
           assignTo: "self",
         };
 
@@ -332,7 +316,10 @@ export default function CalendarSection() {
     } catch (err: any) {
       console.error("Save task error:", err);
       setModalError(
-        err?.response?.data?.error || err?.message || "Failed to save task. Please try again."
+        err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to save task. Please try again."
       );
     } finally {
       setIsModalSaving(false);
@@ -401,7 +388,7 @@ export default function CalendarSection() {
                 Calendar & Planner
               </h1>
               <p className="text-xs sm:text-sm text-(--color-desc)">
-                Organize your deadlines, meetings, and daily schedules visually.
+                Organize your deadlines and daily schedules visually.
               </p>
             </div>
           </div>
@@ -612,7 +599,7 @@ export default function CalendarSection() {
                   <div className="mb-4">
                     <div className="flex items-center justify-between">
                       <h2 className="text-base font-bold text-(--color-text) flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-blue-500" />
+                        <CalendarIcon className="w-4 h-4 text-blue-500" />
                         {selectedDate.toLocaleDateString("en-IN", {
                           weekday: "short",
                           day: "numeric",
@@ -634,7 +621,7 @@ export default function CalendarSection() {
                     <div className="relative flex items-center">
                       <input
                         type="text"
-                        placeholder={`Quick add task for ${selectedDate.toLocaleDateString("en-IN", { month: "short", day: "numeric" })}...`}
+                        placeholder={`+ Quick add task for ${selectedDate.toLocaleDateString("en-IN", { month: "short", day: "numeric" })}...`}
                         value={quickTitle}
                         onChange={(e) => setQuickTitle(e.target.value)}
                         disabled={isQuickAdding}
@@ -665,11 +652,11 @@ export default function CalendarSection() {
                       </div>
                       <h4 className="text-sm font-semibold text-(--color-text)">No tasks scheduled</h4>
                       <p className="text-xs text-(--color-desc) mt-1 max-w-[220px]">
-                        Enjoy your free time, or schedule something to accomplish today.
+                        Enjoy your day, or schedule something to accomplish.
                       </p>
                       <button
                         onClick={handleOpenCreateModal}
-                        className="mt-4 px-3 py-1.5 text-xs font-medium rounded-xl border border-(--color-border) bg-(--card-bg) hover:bg-(--hover-card-bg) text-(--color-text) transition"
+                        className="mt-4 px-3 py-1.5 text-xs font-medium rounded-xl border border-(--color-border) bg-(--card-bg) hover:bg-(--hover-card-bg) text-(--color-text) transition cursor-pointer"
                       >
                         + Create Task with Details
                       </button>
@@ -678,15 +665,6 @@ export default function CalendarSection() {
                     <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
                       {selectedDateTasks.map((task) => {
                         const isDone = task.status === "done";
-                        let timeString = "";
-                        if (task.dueDate) {
-                          const d = new Date(task.dueDate);
-                          timeString = d.toLocaleTimeString("en-IN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: true,
-                          });
-                        }
 
                         return (
                           <div
@@ -742,13 +720,6 @@ export default function CalendarSection() {
                                   <p className="text-[11px] text-(--color-desc) mt-0.5 line-clamp-1">
                                     {task.description}
                                   </p>
-                                )}
-
-                                {timeString && (
-                                  <div className="flex items-center gap-1 text-[11px] text-(--color-desc) mt-1">
-                                    <Clock className="w-3 h-3" />
-                                    <span>{timeString}</span>
-                                  </div>
                                 )}
                               </div>
 
@@ -855,25 +826,26 @@ export default function CalendarSection() {
         </div>
       </div>
 
-      {/* CREATE & EDIT TASK MODAL */}
+      {/* CREATE & EDIT TASK MODAL (Unified with MyTasks) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg bg-(--card-bg) border border-(--color-border) rounded-2xl shadow-2xl p-6 text-(--color-text) animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-3xl bg-(--card-bg) border border-(--color-border) shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-(--color-border)">
+            <div className="flex items-center justify-between border-b border-(--color-border) pb-3">
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-(--color-text)">
-                  {editingTask ? "Edit Scheduled Task" : "Schedule New Task"}
+                  {editingTask ? "Edit Task" : "Create New Task"}
                 </h3>
                 <p className="text-xs text-(--color-desc)">
                   {editingTask
                     ? "Update your task details and deadline"
-                    : "Add a task directly onto your calendar schedule"}
+                    : "Add a task directly to your schedule"}
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition cursor-pointer"
+                className="p-1.5 rounded-lg text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -881,37 +853,40 @@ export default function CalendarSection() {
 
             {/* Error Banner */}
             {modalError && (
-              <div className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{modalError}</span>
               </div>
             )}
 
-            {/* Form */}
-            <form onSubmit={handleSaveModal} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
+            {/* Unified Form */}
+            <form onSubmit={handleSaveModal} className="space-y-4">
+              {/* Title */}
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-(--color-text)">
                   Task Title *
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Client review meeting, Quarterly Tax Filing"
+                  placeholder="e.g. Finalize Q4 Roadmap, Review sprint tasks..."
                   value={modalForm.title}
                   onChange={(e) =>
                     setModalForm((prev) => ({ ...prev, title: e.target.value }))
                   }
                   required
-                  className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) outline-none focus:border-(--color-primary) transition-colors"
+                  autoFocus
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) placeholder:text-(--color-desc) outline-none focus:ring-2 focus:ring-(--color-primary)/30 transition-all"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
-                  Description
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-(--color-text)">
+                  Description & Details
                 </label>
                 <textarea
                   rows={3}
-                  placeholder="Add notes, agenda items, or links..."
+                  placeholder="Add notes, agenda items, or deliverables..."
                   value={modalForm.description}
                   onChange={(e) =>
                     setModalForm((prev) => ({
@@ -919,46 +894,18 @@ export default function CalendarSection() {
                       description: e.target.value,
                     }))
                   }
-                  className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) outline-none focus:border-(--color-primary) transition-colors resize-none"
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) placeholder:text-(--color-desc) outline-none focus:ring-2 focus:ring-(--color-primary)/30 transition-all resize-none"
                 />
               </div>
 
+              {/* Priority & Due Date Row (Identical to MyTasks) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
-                    Due Date
+                {/* Priority Selection */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-(--color-text)">
+                    Priority Level
                   </label>
-                  <input
-                    type="date"
-                    value={modalForm.date}
-                    onChange={(e) =>
-                      setModalForm((prev) => ({ ...prev, date: e.target.value }))
-                    }
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) outline-none focus:border-(--color-primary)"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
-                    Time
-                  </label>
-                  <input
-                    type="time"
-                    value={modalForm.time}
-                    onChange={(e) =>
-                      setModalForm((prev) => ({ ...prev, time: e.target.value }))
-                    }
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) outline-none focus:border-(--color-primary)"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
-                    Priority
-                  </label>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-(--hover-card-bg) p-1 border border-(--color-border)">
                     {(["low", "medium", "high"] as const).map((p) => (
                       <button
                         key={p}
@@ -966,14 +913,14 @@ export default function CalendarSection() {
                         onClick={() =>
                           setModalForm((prev) => ({ ...prev, priority: p }))
                         }
-                        className={`py-1.5 text-xs font-semibold rounded-lg border capitalize transition-all cursor-pointer ${
+                        className={`py-1.5 rounded-lg text-xs font-bold capitalize transition-colors cursor-pointer ${
                           modalForm.priority === p
                             ? p === "high"
-                              ? "bg-red-500/10 border-red-500 text-red-600 dark:text-red-400 font-bold"
+                              ? "bg-rose-500 text-white shadow-xs"
                               : p === "medium"
-                              ? "bg-amber-500/10 border-amber-500 text-amber-600 dark:text-amber-400 font-bold"
-                              : "bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400 font-bold"
-                            : "border-(--color-border) text-(--color-desc) hover:bg-(--hover-card-bg)"
+                              ? "bg-amber-500 text-white shadow-xs"
+                              : "bg-blue-500 text-white shadow-xs"
+                            : "text-(--color-desc) hover:text-(--color-text)"
                         }`}
                       >
                         {p}
@@ -982,31 +929,51 @@ export default function CalendarSection() {
                   </div>
                 </div>
 
-                {editingTask && (
-                  <div>
-                    <label className="block text-xs font-semibold text-(--color-text) mb-1.5">
-                      Status
-                    </label>
-                    <select
-                      value={modalForm.status}
-                      onChange={(e) =>
-                        setModalForm((prev) => ({
-                          ...prev,
-                          status: e.target.value as any,
-                        }))
-                      }
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-(--color-border) bg-(--color-input) text-(--color-text) outline-none focus:border-(--color-primary) cursor-pointer"
-                    >
-                      <option value="todo">To Do</option>
-                      <option value="inprogress">In Progress</option>
-                      <option value="done">Completed</option>
-                    </select>
-                  </div>
-                )}
+                {/* Target Due Date Picker */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-(--color-text)">
+                    Target Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={modalForm.dueDate}
+                    onChange={(e) =>
+                      setModalForm((prev) => ({ ...prev, dueDate: e.target.value }))
+                    }
+                    className="w-full text-xs px-3 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-(--color-text) outline-none focus:ring-2 focus:ring-(--color-primary)/30"
+                  />
+                </div>
               </div>
 
+              {/* Execution Status if editing */}
+              {editingTask && (
+                <div className="space-y-1 pt-1">
+                  <label className="block text-xs font-semibold text-(--color-text)">
+                    Execution Status
+                  </label>
+                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-(--hover-card-bg) p-1 border border-(--color-border)">
+                    {(["todo", "inprogress", "done"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() =>
+                          setModalForm((prev) => ({ ...prev, status: s }))
+                        }
+                        className={`py-1.5 rounded-lg text-xs font-bold capitalize transition-colors cursor-pointer ${
+                          modalForm.status === s
+                            ? "bg-(--color-primary) text-white shadow-xs"
+                            : "text-(--color-desc) hover:text-(--color-text)"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Modal Actions */}
-              <div className="pt-4 border-t border-(--color-border) flex items-center justify-end gap-2.5">
+              <div className="pt-3 border-t border-(--color-border) flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
