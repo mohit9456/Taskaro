@@ -22,6 +22,10 @@ import {
   LogOut,
   ChevronRight,
   Sparkles,
+  Building2,
+  Ticket,
+  MessageSquare,
+  Activity,
 } from "lucide-react";
 
 interface NavItemConfig {
@@ -66,6 +70,35 @@ const routineItems: NavItemConfig[] = [
     label: "Smart Alarms",
     href: "/dashboard/smart-alarm",
     icon: AlarmClock,
+  },
+];
+
+const teamItems: NavItemConfig[] = [
+  {
+    key: "team",
+    label: "Organization & Depts",
+    href: "/dashboard/team",
+    icon: Building2,
+    badge: "PRO",
+  },
+  {
+    key: "tickets",
+    label: "Queries & Tickets",
+    href: "/dashboard/team/tickets",
+    icon: Ticket,
+  },
+  {
+    key: "chat",
+    label: "Team Chat",
+    href: "/dashboard/team/chat",
+    icon: MessageSquare,
+  },
+  {
+    key: "standup",
+    label: "Async Standup",
+    href: "/dashboard/team/standup",
+    icon: Activity,
+    badge: "60s",
   },
 ];
 
@@ -235,6 +268,44 @@ export default function DashboardSidebar() {
                   </div>
                   {item.badge && (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* PRO COLLABORATION */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-(--color-desc)">
+                Pro Teams
+              </p>
+              <span className="text-[8px] font-extrabold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-500 border border-amber-500/30">
+                PRO
+              </span>
+            </div>
+            {teamItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href || (item.href !== "/dashboard/team" && pathname.startsWith(item.href));
+
+              return (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                    isActive
+                      ? "bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 font-bold"
+                      : "text-(--color-content) hover:bg-(--hover-card-bg) hover:text-(--color-text)"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-600 dark:text-indigo-400">
                       {item.badge}
                     </span>
                   )}

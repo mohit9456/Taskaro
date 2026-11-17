@@ -53,6 +53,45 @@ const TaskSchema = new mongoose.Schema(
     trashedAt: {
       type: Date,
     },
+
+    // 🏢 Pro Team & Organizational Integration
+    orgId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+      index: true,
+    },
+
+    departmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Department",
+      default: null,
+      index: true,
+    },
+
+    estimatedHours: {
+      type: Number,
+      default: 2,
+    },
+
+    // 🔗 Cross-Department Dependency Handshake
+    dependencyTaskId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Task",
+      default: null,
+    },
+
+    isLocked: {
+      type: Boolean,
+      default: false,
+    },
+
+    tags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
   },
   { timestamps: true }, // createdAt, updatedAt
 );
