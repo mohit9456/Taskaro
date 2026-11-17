@@ -152,6 +152,11 @@ export default function Navbar() {
                   <span className="hidden sm:inline-block text-xs font-semibold text-(--color-text) max-w-[120px] truncate">
                     {session.user.name?.split(" ")[0]}
                   </span>
+                  {(session.user as any)?.isPro && (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-linear-to-r from-amber-400 to-yellow-500 text-black shadow-xs tracking-wider shrink-0">
+                      PRO
+                    </span>
+                  )}
                   <ChevronDown
                     className={`w-3.5 h-3.5 text-(--color-desc) transition-transform duration-200 ${
                       profileDropdownOpen ? "rotate-180" : ""
@@ -163,9 +168,16 @@ export default function Navbar() {
                 {profileDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-(--card-bg) border border-(--color-border) shadow-xl shadow-black/10 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                     <div className="px-4 py-2.5 border-b border-(--color-border)">
-                      <p className="text-xs font-semibold text-(--color-text) truncate">
-                        {session.user.name}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-(--color-text) truncate">
+                          {session.user.name}
+                        </p>
+                        {(session.user as any)?.isPro && (
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-linear-to-r from-amber-400 to-yellow-500 text-black shadow-xs tracking-wider shrink-0">
+                            PRO
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-(--color-desc) truncate mt-0.5">
                         {session.user.email}
                       </p>

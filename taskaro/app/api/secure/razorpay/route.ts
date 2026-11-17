@@ -1,29 +1,25 @@
 import { createSubscription } from "@/server/services/subscription.service";
 
-export async function POST(request) {
+export async function POST(req: Request) {
   try {
-    const email = request.headers.get("x-user-email");
-
+    const email = req.headers.get("x-user-email");
     if (!email) {
-      return Response.json(
-        { error: "Unauthorized user or something went wrong" },
-        { status: 401 }
-      );
+      return Response.json({ error: "Unauthorized access" }, { status: 401 });
     }
 
-    const body = await request.json();
+    const body = await req.json();
+    const { planName = "pro", interval = "monthly" } = body;
 
     const result = await createSubscription({
       email,
-      ...body,
+      planName,
+      interval,
     });
-    return new Response(JSON.stringify(result), { status: 200 });
-  } catch (error) {
-    // console.error("Subscription check error:", error);
-    return new Response(
-      JSON.stringify({
-        error: error.message || "Something went wrong",
-      }),
+
+    return Response.json(result, { status: 200 });
+  } catch (error: any) {
+    return Response.json(
+      { error: error.message || "Failed to create subscription order" },
       { status: error.status || 500 }
     );
   }

@@ -271,22 +271,39 @@ export default function DashboardSidebar() {
             })}
           </div>
 
-          {/* UPGRADE PRO CARD */}
-          <div className="rounded-2xl bg-linear-to-br from-blue-600 via-indigo-600 to-purple-600 p-3.5 text-white shadow-lg shadow-blue-500/15 space-y-2">
-            <div className="flex items-center gap-1.5">
-              <Crown className="w-4 h-4 text-amber-300" />
-              <span className="text-xs font-bold tracking-tight">Taskaro Pro</span>
+          {/* UPGRADE PRO CARD OR ACTIVE PRO BADGE */}
+          {(session?.user as any)?.isPro ? (
+            <div className="rounded-2xl bg-linear-to-br from-amber-500/15 via-purple-500/15 to-blue-500/15 border border-amber-500/30 p-3.5 text-(--color-text) shadow-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs">
+                  <Crown className="w-4 h-4 text-amber-400 fill-amber-400" />
+                  <span>PRO MEMBER</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                  ACTIVE
+                </span>
+              </div>
+              <p className="text-[11px] text-(--color-desc) leading-tight">
+                All cognitive alarms, habit matrices, and velocity analytics unlocked.
+              </p>
             </div>
-            <p className="text-[11px] text-blue-100/90 leading-tight">
-              Unlock unlimited habits, smart cloud alarms & AI task insights.
-            </p>
-            <button
-              onClick={() => router.push("/pricing")}
-              className="w-full py-1.5 rounded-xl bg-white text-gray-900 hover:bg-white/90 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
-            >
-              Upgrade Now
-            </button>
-          </div>
+          ) : (
+            <div className="rounded-2xl bg-linear-to-br from-blue-600 via-indigo-600 to-purple-600 p-3.5 text-white shadow-lg shadow-blue-500/15 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Crown className="w-4 h-4 text-amber-300" />
+                <span className="text-xs font-bold tracking-tight">Taskaro Pro</span>
+              </div>
+              <p className="text-[11px] text-blue-100/90 leading-tight">
+                Unlock unlimited habits, smart cloud alarms & AI task insights.
+              </p>
+              <button
+                onClick={() => router.push("/pricing")}
+                className="w-full py-1.5 rounded-xl bg-white text-gray-900 hover:bg-white/90 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+              >
+                Upgrade Now
+              </button>
+            </div>
+          )}
         </div>
 
         {/* BOTTOM USER PROFILE CARD */}
@@ -309,9 +326,16 @@ export default function DashboardSidebar() {
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-(--color-text) truncate">
-                    {session.user.name}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-semibold text-(--color-text) truncate">
+                      {session.user.name}
+                    </p>
+                    {(session.user as any)?.isPro && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-linear-to-r from-amber-400 to-yellow-500 text-black shadow-xs tracking-wider shrink-0">
+                        PRO
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[10px] text-(--color-desc) truncate">
                     {session.user.email}
                   </p>

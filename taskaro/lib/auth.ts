@@ -71,29 +71,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }: any) {
       await connectToDatabase();
 
-      if (token?.id) {
-        const dbUser = await (User as any).findById(token.id).select(
-          "name role profileImage about createdAt"
-        );
+        const userId = token?.id || token?.sub;
+        if (userId) {
+          const dbUser = await (User as any).findById(userId).select(
+            "name role profileImage about createdAt isPro plan subscriptionExpiresAt"
+          ).lean();
 
-        if (dbUser) {
-          session.user.id = token.id;
-          session.user.name = dbUser.name;
-          session.user.role = dbUser.role;
-          session.user.profileImage = dbUser.profileImage;
-          session.user.about = dbUser.about;
-          session.user.createdAt = dbUser.createdAt;
+          if (dbUser) {
+            session.user.id = userId;
+            session.user.name = dbUser.name;
+            session.user.role = dbUser.role;
+            session.user.profileImage = dbUser.profileImage;
+            session.user.about = dbUser.about;
+            session.user.createdAt = dbUser.createdAt;
+            (session.user as any).isPro = Boolean(dbUser.isPro);
+            (session.user as any).plan = dbUser.plan || "free";
+            (session.user as any).subscriptionExpiresAt = dbUser.subscriptionExpiresAt || null;
+          }
         }
-      }
 
-      return session;
+        return session;
+      },
     },
-  },
 
-  pages: {
-    signIn: "/auth/login",
-  },
+    pages: {
+      signIn: "/auth/login",
+    },
 
-  secret: process.env.AUTH_SECRET,
-  trustHost: true,
-});
+    secret: process.env.AUTH_SECRET,
+    trustHost: true,
+  });

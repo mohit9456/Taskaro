@@ -25,6 +25,7 @@ import {
   BellRing,
   CheckSquare,
   Activity,
+  Crown,
 } from "lucide-react";
 
 export default function UpdateProfilePage() {
@@ -327,6 +328,12 @@ export default function UpdateProfilePage() {
 
         {/* Account Badge */}
         <div className="flex items-center gap-2">
+          {(session?.user as any)?.isPro && (
+            <div className="px-3 py-1.5 rounded-xl text-xs font-extrabold bg-linear-to-r from-amber-400 to-yellow-500 text-black shadow-xs flex items-center gap-1.5">
+              <Crown className="w-3.5 h-3.5 fill-black" />
+              <span>PRO MEMBER</span>
+            </div>
+          )}
           <div className="px-3 py-1.5 rounded-xl border border-(--color-border) bg-(--card-bg) text-xs font-semibold text-(--color-text) shadow-xs flex items-center gap-1.5">
             <Shield className="w-3.5 h-3.5 text-blue-500" />
             <span className="capitalize">
@@ -384,6 +391,11 @@ export default function UpdateProfilePage() {
             <div className="space-y-1">
               <h2 className="text-xl sm:text-2xl font-bold text-(--color-text) flex items-center justify-center sm:justify-start gap-2">
                 <span>{name || "Taskaro Member"}</span>
+                {(session?.user as any)?.isPro && (
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-linear-to-r from-amber-400 to-yellow-500 text-black shadow-xs tracking-wider">
+                    PRO
+                  </span>
+                )}
                 {authProvider === "google" && (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
                     Google Connected

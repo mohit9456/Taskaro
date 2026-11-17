@@ -34,6 +34,19 @@ const UserSchema = new mongoose.Schema(
       default: false,
     },
     role: { type: String, enum: ["admin", "user"], default: "user" },
+    plan: {
+      type: String,
+      enum: ["free", "pro", "enterprise"],
+      default: "free",
+    },
+    isPro: {
+      type: Boolean,
+      default: false,
+    },
+    subscriptionExpiresAt: {
+      type: Date,
+      default: null,
+    },
     resetPasswordOTP: {
       type: String,
     },
