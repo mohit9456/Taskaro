@@ -57,7 +57,7 @@ export default function Footer() {
       setNewsletterStatus("error");
       setNewsletterMsg(
         err?.response?.data?.message ||
-          "Could not subscribe right now. Please try again later."
+        "Could not subscribe right now. Please try again later."
       );
     }
   };
@@ -98,15 +98,14 @@ export default function Footer() {
     <footer className="w-full bg-(--card-bg) border-t border-(--color-border) text-(--color-text) transition-colors duration-200">
       {/* MAIN FOOTER CONTAINER */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 lg:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-11 gap-10 lg:gap-8">
           {/* BRAND COLUMN (4 cols) */}
           <div className="lg:col-span-4 space-y-4">
             <Link href="/" className="inline-block">
               <Image
                 src={logoImg}
                 alt="Taskaro logo"
-                className="w-36 h-auto dark:invert dark:brightness-110"
-              />
+                className="w-36 h-auto invert dark:invert-0 brightness-110 dark:brightness-100" />
             </Link>
             <p className="text-sm text-(--color-desc) leading-relaxed max-w-sm">
               The high-performance productivity workspace. Master your daily
@@ -144,7 +143,7 @@ export default function Footer() {
           </div>
 
           {/* PRODUCT LINKS (2 cols) */}
-          <div className="lg:col-span-2 space-y-3">
+          {/* <div className="lg:col-span-2 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-(--color-text)">
               Product
             </h3>
@@ -160,7 +159,7 @@ export default function Footer() {
                 </li>
               ))}
             </ul>
-          </div>
+          </div> */}
 
           {/* COMPANY LINKS (2 cols) */}
           <div className="lg:col-span-2 space-y-3">
@@ -201,7 +200,7 @@ export default function Footer() {
           </div>
 
           {/* NEWSLETTER (2 cols) */}
-          <div className="lg:col-span-2 space-y-3">
+          <div className="lg:col-span-3 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-(--color-text)">
               Stay In Sync
             </h3>
@@ -259,7 +258,6 @@ export default function Footer() {
             </span>
             <span className="flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-500" />
-              <span>Next.js 15 Engine</span>
             </span>
           </div>
         </div>

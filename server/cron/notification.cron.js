@@ -8,7 +8,7 @@ const { groupByUser, getOverdueStage } = require("../utils/notificationHelper");
 const { dueTomorrowText, overdueText } = require("../utils/notificationText");
 
 const startNotificationCron = () => {
-  cron.schedule("0 * * * *", async () => {
+  cron.schedule("* * * * *", async () => {
     console.log("⏰ Notification cron started");
 
     const now = new Date();
