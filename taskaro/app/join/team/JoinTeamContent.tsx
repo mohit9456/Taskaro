@@ -19,7 +19,7 @@ import {
 
 interface InvitationData {
   inviteEmail: string;
-  role: "owner" | "lead" | "member";
+  role: "owner" | "admin" | "lead" | "member";
   jobTitle: string;
   organization: {
     _id: string;

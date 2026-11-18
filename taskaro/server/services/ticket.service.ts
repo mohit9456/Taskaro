@@ -125,6 +125,7 @@ export async function listTicketsService(
     .populate("assignedLeadId", "name email profileImage")
     .populate("assignedMemberId", "name email profileImage")
     .populate("resolvedBy", "name email profileImage")
+    .populate({ path: "convertedTaskId", select: "title status priority assignedTo", strictPopulate: false })
     .sort({ isEscalated: -1, createdAt: -1 })
     .lean();
 
@@ -232,5 +233,78 @@ export async function checkAndEscalateBreachedTicketsService(orgId: string) {
   return {
     success: true,
     escalatedCount: breachedTickets.modifiedCount,
+  };
+}
+
+/**
+ * CONVERT TICKET TO DEPARTMENT TASK
+ * Interconnects Ticket system with Department Sprints & Intake
+ */
+export async function convertTicketToTaskService(
+  userId: string,
+  ticketId: string,
+  data?: {
+    assignedTo?: string | null;
+    dueDate?: string;
+  }
+) {
+  await connectToDatabase();
+
+  const ticket = await TeamTicket.findById(ticketId)
+    .populate("sourceDeptId")
+    .populate("targetDeptId");
+
+  if (!ticket) throw { status: 404, message: "Ticket not found" };
+
+  const Task = (await import("../models/Task")).default;
+  const Notification = (await import("../models/Notification")).default;
+
+  // Create new Task in target department
+  const task = await Task.create({
+    title: `[#${ticket.ticketCode}] ${ticket.title}`,
+    description: `${ticket.description || "Converted from Ticket."}\n\nOrigin: Ticket #${ticket.ticketCode} raised by ${ticket.sourceDeptId?.name || "Department"}.`,
+    priority: ticket.priority === "urgent_blocker" ? "urgent" : ticket.priority,
+    status: "todo",
+    dueDate: data?.dueDate ? new Date(data.dueDate) : (ticket.slaDeadline || null),
+    assignedTo: data?.assignedTo ? new mongoose.Types.ObjectId(data.assignedTo) : null,
+    createdBy: new mongoose.Types.ObjectId(userId),
+    orgId: ticket.orgId,
+    departmentId: ticket.targetDeptId._id,
+    sourceDepartmentId: ticket.sourceDeptId._id,
+    requestedBy: ticket.createdBy,
+    linkedTicketId: ticket._id,
+    estimatedHours: 4,
+  });
+
+  ticket.convertedTaskId = task._id;
+  ticket.status = "in_progress";
+  await ticket.save();
+
+  // If assignedTo, notify member; if unassigned, notify target dept lead
+  if (data?.assignedTo) {
+    try {
+      await Notification.create({
+        userId: new mongoose.Types.ObjectId(data.assignedTo),
+        title: "Ticket Converted to Task 🎫",
+        message: `Ticket #${ticket.ticketCode} was converted into task '${task.title}' and assigned to you.`,
+        link: "/dashboard/team",
+      });
+    } catch {}
+  } else if (ticket.targetDeptId.leadId) {
+    try {
+      await Notification.create({
+        userId: ticket.targetDeptId.leadId,
+        title: "📥 Converted Ticket in Department Intake",
+        message: `Ticket #${ticket.ticketCode} was converted to a task in ${ticket.targetDeptId.name}'s intake queue.`,
+        link: "/dashboard/team",
+      });
+    } catch {}
+  }
+
+  return {
+    success: true,
+    message: `Ticket #${ticket.ticketCode} converted to Task in ${ticket.targetDeptId.name}!`,
+    task,
+    ticket,
   };
 }

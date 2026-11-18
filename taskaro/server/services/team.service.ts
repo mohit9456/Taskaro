@@ -129,28 +129,47 @@ export async function getUserOrganizationsService(userId: string) {
   const user = await User.findById(userId).lean();
   if (!user) throw { status: 404, message: "User not found" };
 
-  // Find orgs where user is owner OR member
+  // Find orgs where user is owner OR active member
   const memberships = await OrgMember.find({
-    $or: [{ userId: new mongoose.Types.ObjectId(userId) }, { inviteEmail: user.email.toLowerCase() }],
-    status: { $in: ["active", "invited"] },
+    $or: [
+      { userId: new mongoose.Types.ObjectId(userId) },
+      { inviteEmail: user.email.toLowerCase() },
+    ],
   })
     .populate("orgId")
-    .populate("departmentId", "name code color")
+    .populate("departmentId", "name code color icon")
+    .populate("invitedBy", "name email")
     .lean();
 
-  const orgs = memberships.map((m: any) => ({
-    org: m.orgId,
-    membership: {
+  const activeOrgs = memberships
+    .filter((m: any) => m.status === "active" && m.orgId)
+    .map((m: any) => ({
+      org: m.orgId,
+      membership: {
+        role: m.role,
+        jobTitle: m.jobTitle,
+        department: m.departmentId,
+        status: m.status,
+      },
+    }));
+
+  const pendingInvites = memberships
+    .filter((m: any) => m.status === "invited" && m.orgId)
+    .map((m: any) => ({
+      _id: m._id,
+      org: m.orgId,
       role: m.role,
       jobTitle: m.jobTitle,
       department: m.departmentId,
-      status: m.status,
-    },
-  }));
+      inviteToken: m.inviteToken,
+      invitedBy: m.invitedBy,
+      joinedAt: m.createdAt || m.joinedAt,
+    }));
 
   return {
     success: true,
-    organizations: orgs,
+    organizations: activeOrgs,
+    pendingInvitations: pendingInvites,
   };
 }
 
@@ -172,7 +191,8 @@ export async function getOrganizationDetailsService(userId: string, orgId: strin
     $or: [{ userId: new mongoose.Types.ObjectId(userId) }, { inviteEmail: user.email.toLowerCase() }],
   }).lean();
 
-  if (!userMembership && org.ownerId.toString() !== userId) {
+  const isOwner = org.ownerId.toString() === userId;
+  if (!userMembership && !isOwner) {
     throw { status: 403, message: "You are not a member of this organization." };
   }
 
@@ -189,14 +209,18 @@ export async function getOrganizationDetailsService(userId: string, orgId: strin
     orgId: new mongoose.Types.ObjectId(orgId),
   })
     .populate("userId", "name email profileImage")
-    .populate("departmentId", "name code color")
+    .populate("departmentId", "name code color icon")
+    .populate("invitedBy", "name email")
     .sort({ role: 1, createdAt: 1 })
     .lean();
+
+  const myRole = isOwner ? "owner" : (userMembership?.role || "member");
 
   return {
     success: true,
     organization: org,
-    myRole: userMembership?.role || (org.ownerId.toString() === userId ? "owner" : "member"),
+    myRole,
+    isOwnerOrAdmin: isOwner || myRole === "owner" || myRole === "admin",
     departments,
     members: members.map((m: any) => ({
       _id: m._id,
@@ -206,6 +230,8 @@ export async function getOrganizationDetailsService(userId: string, orgId: strin
       status: m.status,
       department: m.departmentId,
       capacityWeeklyHours: m.capacityWeeklyHours,
+      inviteToken: m.inviteToken,
+      invitedBy: m.invitedBy,
       joinedAt: m.joinedAt,
     })),
   };
@@ -271,7 +297,7 @@ export async function createDepartmentService(
 }
 
 /**
- * APPOINT OR UPDATE DEPARTMENT LEAD
+ * APPOINT OR UPDATE DEPARTMENT LEAD (Strictly Admin / Owner Only)
  */
 export async function updateDepartmentLeadService(
   userId: string,
@@ -284,14 +310,29 @@ export async function updateDepartmentLeadService(
   const org = await Organization.findById(orgId).lean();
   if (!org) throw { status: 404, message: "Organization not found" };
 
-  if (org.ownerId.toString() !== userId) {
-    const caller = await OrgMember.findOne({
-      orgId: new mongoose.Types.ObjectId(orgId),
-      userId: new mongoose.Types.ObjectId(userId),
-    }).lean();
-    if (caller?.role !== "owner") {
-      throw { status: 403, message: "Only organization owners can appoint department leads." };
-    }
+  const caller = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    userId: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const isOwner = org.ownerId.toString() === userId || caller?.role === "owner";
+  const isAdmin = caller?.role === "admin";
+
+  if (!isOwner && !isAdmin) {
+    throw {
+      status: 403,
+      message: "Only organization owners or admins can appoint or change department leads.",
+    };
+  }
+
+  // Check if target user belongs to this org
+  const targetMember = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    userId: new mongoose.Types.ObjectId(leadUserId),
+  });
+
+  if (!targetMember) {
+    throw { status: 400, message: "Selected user is not an active member of this organization." };
   }
 
   // Update department lead
@@ -303,29 +344,40 @@ export async function updateDepartmentLeadService(
 
   if (!dept) throw { status: 404, message: "Department not found." };
 
-  // Promote member to "lead" role in OrgMember
-  await OrgMember.findOneAndUpdate(
-    { orgId: new mongoose.Types.ObjectId(orgId), userId: new mongoose.Types.ObjectId(leadUserId) },
-    { role: "lead", departmentId: new mongoose.Types.ObjectId(departmentId) }
-  );
+  // Promote member to "lead" role if currently "member"
+  if (targetMember.role === "member") {
+    targetMember.role = "lead";
+  }
+  targetMember.departmentId = new mongoose.Types.ObjectId(departmentId);
+  await targetMember.save();
+
+  // Create notification for appointed lead
+  try {
+    await Notification.create({
+      userId: new mongoose.Types.ObjectId(leadUserId),
+      title: "👑 Appointed as Department Lead",
+      message: `You are now the lead for the ${dept.name} department in ${org.name}.`,
+      link: "/dashboard/team",
+    });
+  } catch {}
 
   return {
     success: true,
-    message: "Department lead appointed successfully.",
+    message: `Department lead appointed successfully for ${dept.name}.`,
     department: dept,
   };
 }
 
 /**
- * INVITE OR ADD TEAM MEMBER
+ * UPDATE MEMBER ROLE OR DEPARTMENT (Admin / Owner Only)
  */
-export async function inviteOrgMemberService(
-  userId: string,
+export async function updateMemberRoleService(
+  callerUserId: string,
   orgId: string,
+  memberId: string,
   data: {
-    email: string;
-    departmentId?: string;
-    role?: "lead" | "member";
+    role?: "admin" | "lead" | "member";
+    departmentId?: string | null;
     jobTitle?: string;
   }
 ) {
@@ -334,8 +386,95 @@ export async function inviteOrgMemberService(
   const org = await Organization.findById(orgId).lean();
   if (!org) throw { status: 404, message: "Organization not found" };
 
+  const caller = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    userId: new mongoose.Types.ObjectId(callerUserId),
+  }).lean();
+
+  const isOwner = org.ownerId.toString() === callerUserId || caller?.role === "owner";
+  const isAdmin = caller?.role === "admin";
+
+  if (!isOwner && !isAdmin) {
+    throw { status: 403, message: "Only organization owners or admins can modify member roles and departments." };
+  }
+
+  const member = await OrgMember.findById(memberId);
+  if (!member) throw { status: 404, message: "Member record not found" };
+
+  if (member.role === "owner" && !isOwner) {
+    throw { status: 403, message: "Only the organization founder can modify owner roles." };
+  }
+
+  const updateFields: any = {};
+  if (data.role) updateFields.role = data.role;
+  if (data.jobTitle) updateFields.jobTitle = data.jobTitle.trim();
+  if (data.departmentId !== undefined) {
+    updateFields.departmentId = data.departmentId ? new mongoose.Types.ObjectId(data.departmentId) : null;
+  }
+
+  const updatedMember = await OrgMember.findByIdAndUpdate(
+    memberId,
+    { $set: updateFields },
+    { new: true }
+  );
+
+  return {
+    success: true,
+    message: "Member updated successfully.",
+    member: updatedMember,
+  };
+}
+
+/**
+ * INVITE TEAM MEMBER (Dispatches Email + In-App Notification)
+ */
+export async function inviteOrgMemberService(
+  userId: string,
+  orgId: string,
+  data: {
+    email: string;
+    departmentId?: string;
+    role?: "admin" | "lead" | "member";
+    jobTitle?: string;
+  }
+) {
+  await connectToDatabase();
+
+  const org = await Organization.findById(orgId).lean();
+  if (!org) throw { status: 404, message: "Organization not found" };
+
+  const caller = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    userId: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const isOwnerOrAdmin = org.ownerId.toString() === userId || caller?.role === "owner" || caller?.role === "admin";
+  const isLead = caller?.role === "lead";
+
+  if (!isOwnerOrAdmin && !isLead) {
+    throw { status: 403, message: "Only organization admins, owners, or department leads can invite members." };
+  }
+
+  // Leads can only invite to their own department
+  if (isLead && !isOwnerOrAdmin) {
+    if (caller?.departmentId?.toString() !== data.departmentId) {
+      throw { status: 403, message: "Department leads can only invite members into their own department." };
+    }
+  }
+
   const inviter = await User.findById(userId).select("name email").lean();
   const email = data.email.trim().toLowerCase();
+
+  // Check if target is already an active member of this org
+  const existingActive = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    inviteEmail: email,
+    status: "active",
+  }).lean();
+
+  if (existingActive) {
+    throw { status: 400, message: "This user is already an active member of the organization." };
+  }
 
   // Check if existing Taskaro registered user
   const targetUser = await User.findOne({ email }).lean();
@@ -355,7 +494,7 @@ export async function inviteOrgMemberService(
     "http://localhost:3000";
   const inviteLink = `${baseUrl}/join/team?token=${inviteToken}`;
 
-  // Upsert membership
+  // Upsert membership: ALWAYS "invited" initially so the user can accept!
   const member = await OrgMember.findOneAndUpdate(
     { orgId: new mongoose.Types.ObjectId(orgId), inviteEmail: email },
     {
@@ -363,7 +502,7 @@ export async function inviteOrgMemberService(
       departmentId: data.departmentId ? new mongoose.Types.ObjectId(data.departmentId) : null,
       role: data.role || "member",
       jobTitle: data.jobTitle || (data.role === "lead" ? "Department Lead" : "Team Member"),
-      status: targetUser ? "active" : "invited",
+      status: "invited", // Requires explicit acceptance by the user
       inviteToken,
       invitedBy: new mongoose.Types.ObjectId(userId),
       joinedAt: new Date(),
@@ -371,54 +510,67 @@ export async function inviteOrgMemberService(
     { upsert: true, new: true }
   ).populate("userId", "name email profileImage");
 
-  // Send invitation email with HTML template
-  try {
-    const roleLabel = data.role === "lead" ? "Department Lead" : "Team Member";
-    const inviterName = inviter?.name || "Your Team Lead";
-
-    await sendMailService({
-      to: email,
-      subject: `You've been invited to join ${org.name} on Taskaro`,
-      text: `Hi there,\n\n${inviterName} has invited you to join ${org.name} as ${roleLabel} in ${deptName}.\n\nClick the link below to accept your invitation:\n${inviteLink}\n\nWelcome aboard,\nTeam Taskaro`,
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px;">
-          <div style="margin-bottom: 24px;">
-            <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0 0 8px;">You've Been Invited to Join ${org.name}</h1>
-            <p style="color: #64748b; font-size: 14px; margin: 0;">Collaborate, track sprints, and eliminate blockers on Taskaro.</p>
-          </div>
-
-          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
-            <p style="margin: 0 0 10px; font-size: 14px; color: #334155;">
-              <strong>${inviterName}</strong> has invited you to collaborate in <strong>${org.name}</strong>.
-            </p>
-            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569;">
-              <li><strong>Department:</strong> ${deptName}</li>
-              <li><strong>Role:</strong> ${roleLabel}</li>
-              <li><strong>Job Title:</strong> ${data.jobTitle || roleLabel}</li>
-            </ul>
-          </div>
-
-          <div style="text-align: center; margin-bottom: 24px;">
-            <a href="${inviteLink}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 10px; text-decoration: none;">
-              Accept Invitation & Join Team
-            </a>
-          </div>
-
-          <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0;">
-            Or copy and paste this link in your browser:<br/>
-            <a href="${inviteLink}" style="color: #2563eb; word-break: break-all;">${inviteLink}</a>
-          </p>
-        </div>
-      `,
-    });
-  } catch (emailErr) {
-    console.error("Failed to send invite email via SMTP, link still active:", emailErr);
+  // Send In-App Notification if user is already registered on Taskaro
+  if (targetUser) {
+    try {
+      await Notification.create({
+        userId: targetUser._id,
+        title: "Team Invitation Pending 🔔",
+        message: `${inviter?.name || "A team admin"} invited you to join ${org.name} as ${data.role === "lead" ? "Department Lead" : data.role === "admin" ? "Admin" : "Team Member"} in ${deptName}.`,
+        link: `/join/team?token=${inviteToken}`,
+      });
+    } catch (notifErr) {
+      console.error("Failed to create notification:", notifErr);
+    }
   }
+
+  // Send invitation email with HTML template
+  const roleLabel = data.role === "lead" ? "Department Lead" : data.role === "admin" ? "Admin" : "Team Member";
+  const inviterName = inviter?.name || "Your Team Lead";
+
+  const emailResult = await sendMailService({
+    to: email,
+    subject: `You've been invited to join ${org.name} on Taskaro`,
+    text: `Hi there,\n\n${inviterName} has invited you to join ${org.name} as ${roleLabel} in ${deptName}.\n\nClick the link below to accept your invitation:\n${inviteLink}\n\nWelcome aboard,\nTeam Taskaro`,
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px;">
+        <div style="margin-bottom: 24px;">
+          <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0 0 8px;">You've Been Invited to Join ${org.name}</h1>
+          <p style="color: #64748b; font-size: 14px; margin: 0;">Collaborate, track sprints, and eliminate blockers on Taskaro.</p>
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
+          <p style="margin: 0 0 10px; font-size: 14px; color: #334155;">
+            <strong>${inviterName}</strong> has invited you to collaborate in <strong>${org.name}</strong>.
+          </p>
+          <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569; line-height: 1.8;">
+            <li><strong>Department:</strong> ${deptName}</li>
+            <li><strong>Role:</strong> ${roleLabel}</li>
+            <li><strong>Job Title:</strong> ${data.jobTitle || roleLabel}</li>
+          </ul>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 24px;">
+          <a href="${inviteLink}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 10px; text-decoration: none;">
+            Accept Invitation & Join Team
+          </a>
+        </div>
+
+        <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0;">
+          Or copy and paste this link in your browser:<br/>
+          <a href="${inviteLink}" style="color: #2563eb; word-break: break-all;">${inviteLink}</a>
+        </p>
+      </div>
+    `,
+  });
 
   return {
     success: true,
-    message: `Invitation generated and dispatched to ${email}.`,
+    message: emailResult.success
+      ? `Invitation sent via email to ${email}.`
+      : `Invitation generated! Share the magic link below with the user.`,
     inviteLink,
+    emailDispatched: emailResult.success,
     member,
   };
 }
@@ -473,6 +625,13 @@ export async function acceptInviteService(userId: string, token: string) {
   member.joinedAt = new Date();
   await member.save();
 
+  // If invited as lead and department is assigned, ensure department leadId is updated
+  if (member.role === "lead" && member.departmentId) {
+    await Department.findByIdAndUpdate(member.departmentId, {
+      leadId: new mongoose.Types.ObjectId(userId),
+    });
+  }
+
   return {
     success: true,
     message: "Welcome to the team! You have successfully joined the organization.",
@@ -481,26 +640,84 @@ export async function acceptInviteService(userId: string, token: string) {
 }
 
 /**
- * CREATE A DEPARTMENT TASK & DELEGATE TO MEMBER
+ * DECLINE INVITATION
+ */
+export async function declineInviteService(userId: string, token: string) {
+  await connectToDatabase();
+
+  const member = await OrgMember.findOne({ inviteToken: token });
+  if (!member) {
+    throw { status: 404, message: "Invitation not found or already processed." };
+  }
+
+  await OrgMember.findByIdAndDelete(member._id);
+
+  return {
+    success: true,
+    message: "Invitation declined.",
+  };
+}
+
+/**
+ * CREATE A DEPARTMENT TASK / CROSS-DEPARTMENT WORK REQUEST
+ * - If assignedTo is null -> enters department intake queue for lead triage
+ * - If assignedTo is given -> checks permission (Lead of that dept or Org Admin)
  */
 export async function createDepartmentTaskService(
   callerUserId: string,
   data: {
     orgId: string;
-    departmentId: string;
+    departmentId: string; // Target department
+    sourceDepartmentId?: string; // Requesting department
     title: string;
     description?: string;
-    priority?: "low" | "medium" | "high";
+    priority?: "low" | "medium" | "high" | "urgent";
     dueDate?: string;
     estimatedHours?: number;
-    assignedTo: string;
+    assignedTo?: string | null;
     dependencyTaskId?: string;
+    linkedTicketId?: string;
   }
 ) {
   await connectToDatabase();
 
   if (!data.title || !data.title.trim()) {
     throw { status: 400, message: "Task title is required." };
+  }
+
+  const org = await Organization.findById(data.orgId).lean();
+  if (!org) throw { status: 404, message: "Organization not found" };
+
+  const callerMembership = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(data.orgId),
+    userId: new mongoose.Types.ObjectId(callerUserId),
+  }).lean();
+
+  const isOwner = org.ownerId.toString() === callerUserId || callerMembership?.role === "owner";
+  const isAdmin = callerMembership?.role === "admin";
+  const isOwnerOrAdmin = isOwner || isAdmin;
+
+  const targetDept = await Department.findById(data.departmentId).lean();
+  if (!targetDept) throw { status: 404, message: "Target department not found" };
+
+  let assignedToUserId: string | null = data.assignedTo ? data.assignedTo : null;
+
+  // Inter-Department Assignment Guard:
+  // If assigning to a specific member, caller MUST be:
+  // 1. Owner or Admin, OR
+  // 2. The Lead of that TARGET department, OR
+  // 3. Assigning to themselves within their own department
+  if (assignedToUserId && !isOwnerOrAdmin) {
+    const isTargetDeptLead = targetDept.leadId?.toString() === callerUserId;
+    const isSelfAssignmentInOwnDept =
+      assignedToUserId === callerUserId &&
+      callerMembership?.departmentId?.toString() === data.departmentId;
+
+    if (!isTargetDeptLead && !isSelfAssignmentInOwnDept) {
+      // Caller cannot arbitrarily bypass the target department lead.
+      // Task is safely routed to the target department's intake queue!
+      assignedToUserId = null;
+    }
   }
 
   // Determine if task starts in locked state
@@ -512,47 +729,145 @@ export async function createDepartmentTaskService(
     }
   }
 
+  const callerDeptId = callerMembership?.departmentId || null;
+
   const task = await Task.create({
     title: data.title.trim(),
     description: data.description?.trim() || "",
     status: "todo",
     priority: data.priority || "medium",
     dueDate: data.dueDate ? new Date(data.dueDate) : null,
-    assignedTo: new mongoose.Types.ObjectId(data.assignedTo),
+    assignedTo: assignedToUserId ? new mongoose.Types.ObjectId(assignedToUserId) : null,
     createdBy: new mongoose.Types.ObjectId(callerUserId),
     orgId: new mongoose.Types.ObjectId(data.orgId),
     departmentId: new mongoose.Types.ObjectId(data.departmentId),
+    sourceDepartmentId: data.sourceDepartmentId
+      ? new mongoose.Types.ObjectId(data.sourceDepartmentId)
+      : callerDeptId,
+    requestedBy: new mongoose.Types.ObjectId(callerUserId),
     estimatedHours: data.estimatedHours || 2,
     dependencyTaskId: data.dependencyTaskId ? new mongoose.Types.ObjectId(data.dependencyTaskId) : null,
+    linkedTicketId: data.linkedTicketId ? new mongoose.Types.ObjectId(data.linkedTicketId) : null,
     isLocked,
   });
 
-  // Create notification for assignee
-  try {
-    await Notification.create({
-      userId: new mongoose.Types.ObjectId(data.assignedTo),
-      title: "New Department Task Assigned",
-      message: `You were assigned: '${task.title}'${isLocked ? " (Locked pending dependency)" : ""}`,
-      link: "/dashboard/my-tasks",
-    });
-  } catch {}
+  // Notifications
+  if (assignedToUserId) {
+    try {
+      await Notification.create({
+        userId: new mongoose.Types.ObjectId(assignedToUserId),
+        title: "New Department Task Assigned",
+        message: `You were assigned: '${task.title}'${isLocked ? " (Locked pending dependency)" : ""}`,
+        link: "/dashboard/team",
+      });
+    } catch {}
+  } else {
+    // Notify target department lead that incoming work has arrived in their intake
+    if (targetDept.leadId) {
+      try {
+        await Notification.create({
+          userId: targetDept.leadId,
+          title: "📥 Incoming Work in Department Intake",
+          message: `A new task '${task.title}' was assigned to ${targetDept.name} for triage and delegation.`,
+          link: "/dashboard/team",
+        });
+      } catch {}
+    }
+  }
 
   const populated = await Task.findById(task._id)
     .populate("assignedTo", "name email profileImage")
-    .populate("departmentId", "name code color")
+    .populate("createdBy", "name email profileImage")
+    .populate("departmentId", "name code color icon leadId")
+    .populate({ path: "sourceDepartmentId", select: "name code color", strictPopulate: false })
+    .populate("dependencyTaskId", "title status")
     .lean();
 
   return {
     success: true,
-    message: isLocked
-      ? "Task created and locked pending dependency completion."
-      : "Department task assigned successfully.",
+    message: assignedToUserId
+      ? (isLocked ? "Task created and locked pending dependency completion." : "Task assigned successfully.")
+      : `Cross-department work routed to ${targetDept.name}'s intake queue for lead delegation.`,
     task: populated,
   };
 }
 
 /**
- * GET DEPARTMENT TASKS & MEMBER WORKLOAD METRICS
+ * DELEGATE / ASSIGN INTAKE TASK TO DEPARTMENT MEMBER (Lead or Admin Only)
+ */
+export async function delegateDepartmentTaskService(
+  callerUserId: string,
+  taskId: string,
+  assignedToUserId: string
+) {
+  await connectToDatabase();
+
+  const task = await Task.findById(taskId);
+  if (!task) throw { status: 404, message: "Task not found" };
+
+  const dept = await Department.findById(task.departmentId).lean();
+  if (!dept) throw { status: 404, message: "Department not found" };
+
+  const org = await Organization.findById(task.orgId).lean();
+
+  const callerMembership = await OrgMember.findOne({
+    orgId: task.orgId,
+    userId: new mongoose.Types.ObjectId(callerUserId),
+  }).lean();
+
+  const isOwnerOrAdmin =
+    org?.ownerId.toString() === callerUserId ||
+    callerMembership?.role === "owner" ||
+    callerMembership?.role === "admin";
+  const isDeptLead = dept.leadId?.toString() === callerUserId;
+
+  if (!isOwnerOrAdmin && !isDeptLead) {
+    throw {
+      status: 403,
+      message: "Only the Department Lead or an Org Admin can delegate tasks from this department's intake.",
+    };
+  }
+
+  // Validate assignee is in this org
+  const assigneeMember = await OrgMember.findOne({
+    orgId: task.orgId,
+    userId: new mongoose.Types.ObjectId(assignedToUserId),
+  }).populate("userId", "name email");
+
+  if (!assigneeMember) {
+    throw { status: 400, message: "Selected user is not an active member of this organization." };
+  }
+
+  task.assignedTo = new mongoose.Types.ObjectId(assignedToUserId);
+  await task.save();
+
+  // Notify assignee
+  try {
+    await Notification.create({
+      userId: new mongoose.Types.ObjectId(assignedToUserId),
+      title: "Task Delegated by Lead 🎯",
+      message: `Your Department Lead delegated: '${task.title}' to you.`,
+      link: "/dashboard/team",
+    });
+  } catch {}
+
+  const populated = await Task.findById(taskId)
+    .populate("assignedTo", "name email profileImage")
+    .populate("createdBy", "name email profileImage")
+    .populate("departmentId", "name code color icon leadId")
+    .populate({ path: "sourceDepartmentId", select: "name code color", strictPopulate: false })
+    .populate("dependencyTaskId", "title status")
+    .lean();
+
+  return {
+    success: true,
+    message: `Task successfully delegated to ${assigneeMember.userId?.name || "member"}.`,
+    task: populated,
+  };
+}
+
+/**
+ * GET DEPARTMENT TASKS & WORKLOAD METRICS
  */
 export async function getDepartmentTasksService(
   userId: string,
@@ -573,17 +888,24 @@ export async function getDepartmentTasksService(
   const rawTasks = await Task.find(query)
     .populate("assignedTo", "name email profileImage role")
     .populate("createdBy", "name email profileImage")
-    .populate("departmentId", "name code color")
+    .populate("departmentId", "name code color icon leadId")
+    .populate({ path: "sourceDepartmentId", select: "name code color", strictPopulate: false })
+    .populate({ path: "blockedByDeptId", select: "name code color", strictPopulate: false })
     .populate("dependencyTaskId", "title status")
+    .populate("linkedTicketId", "ticketCode title status")
     .sort({ createdAt: -1 })
     .lean();
 
   // Calculate members live workload in this org
   const members = await OrgMember.find({
     orgId: new mongoose.Types.ObjectId(orgId),
-    ...(departmentId && departmentId !== "all" ? { departmentId: new mongoose.Types.ObjectId(departmentId) } : {}),
+    status: "active",
+    ...(departmentId && departmentId !== "all"
+      ? { departmentId: new mongoose.Types.ObjectId(departmentId) }
+      : {}),
   })
     .populate("userId", "name email profileImage")
+    .populate("departmentId", "name code color")
     .lean();
 
   const memberWorkloads = members
@@ -602,41 +924,59 @@ export async function getDepartmentTasksService(
         email: m.userId?.email || m.inviteEmail,
         role: m.role,
         jobTitle: m.jobTitle,
+        department: m.departmentId,
         activeTasks,
         capacityHours: m.capacityWeeklyHours || 40,
       };
     });
 
+  // Separate intake (unassigned) tasks vs assigned sprint tasks
+  const intakeTasks = rawTasks.filter((t: any) => !t.assignedTo);
+  const assignedTasks = rawTasks.filter((t: any) => Boolean(t.assignedTo));
+
   return {
     success: true,
     tasks: rawTasks,
+    intakeTasks,
+    assignedTasks,
     memberWorkloads,
   };
 }
 
 /**
- * UPDATE DEPARTMENT TASK STATUS & UNLOCK DEPENDENCIES
+ * UPDATE TASK STATUS (Todo <-> In Progress <-> Review <-> Blocked <-> Done)
+ * Supports Jira-style Proof of Completion & Blocker Handshake
  */
 export async function updateDepartmentTaskStatusService(
   userId: string,
   taskId: string,
-  newStatus: "todo" | "inprogress" | "done"
+  data: {
+    status: "todo" | "inprogress" | "review" | "blocked" | "done";
+    proofUrl?: string;
+    completionNotes?: string;
+    blockedByDeptId?: string | null;
+    blockerReason?: string;
+  }
 ) {
   await connectToDatabase();
 
   const task = await Task.findById(taskId);
   if (!task) throw { status: 404, message: "Task not found" };
 
-  if (task.isLocked && newStatus !== "todo") {
+  if (task.isLocked && data.status !== "todo" && data.status !== "blocked") {
     throw {
       status: 400,
       message: "This task is locked pending dependency completion. Complete the dependent task first.",
     };
   }
 
-  task.status = newStatus;
-  if (newStatus === "done") {
+  const oldStatus = task.status;
+  task.status = data.status;
+
+  if (data.status === "done") {
     task.completedAt = new Date();
+    if (data.proofUrl) task.proofUrl = data.proofUrl.trim();
+    if (data.completionNotes) task.completionNotes = data.completionNotes.trim();
 
     // 🔗 Cross-Department Dependency Handshake: Unlock any tasks waiting on this task!
     const unlocked = await Task.find({ dependencyTaskId: task._id, isLocked: true });
@@ -646,34 +986,106 @@ export async function updateDepartmentTaskStatusService(
         { $set: { isLocked: false } }
       );
 
-      // Notify assignees of unlocked tasks
       for (const unl of unlocked) {
+        if (unl.assignedTo) {
+          try {
+            await Notification.create({
+              userId: unl.assignedTo,
+              title: "Dependency Cleared! 🚀",
+              message: `'${task.title}' was completed. Your task '${unl.title}' is now unlocked.`,
+              link: "/dashboard/team",
+            });
+          } catch {}
+        }
+      }
+    }
+  } else {
+    // If reverted away from done (e.g. back to inprogress or todo)
+    task.completedAt = null;
+  }
+
+  if (data.status === "blocked") {
+    if (data.blockedByDeptId) {
+      task.blockedByDeptId = new mongoose.Types.ObjectId(data.blockedByDeptId);
+    }
+    if (data.blockerReason) {
+      task.blockerReason = data.blockerReason.trim();
+    }
+
+    // Notify lead of the blocking department
+    if (data.blockedByDeptId) {
+      const blockingDept = await Department.findById(data.blockedByDeptId).lean();
+      if (blockingDept?.leadId) {
         try {
           await Notification.create({
-            userId: unl.assignedTo,
-            title: "Task Unlocked! 🚀",
-            message: `Dependency '${task.title}' is completed. Your task '${unl.title}' is now unlocked and ready.`,
-            link: "/dashboard/my-tasks",
+            userId: blockingDept.leadId,
+            title: "🚨 Blocker Raised on Your Department",
+            message: `Task '${task.title}' is blocked waiting on ${blockingDept.name}. Blocker: ${data.blockerReason || "Action required"}`,
+            link: "/dashboard/team",
           });
         } catch {}
       }
     }
-  } else {
-    task.completedAt = null;
+  } else if (oldStatus === "blocked") {
+    // Blocker resolved / cleared
+    task.blockedByDeptId = null;
+    task.blockerReason = "";
   }
 
   await task.save();
 
   const populated = await Task.findById(taskId)
     .populate("assignedTo", "name email profileImage")
-    .populate("departmentId", "name code color")
+    .populate("createdBy", "name email profileImage")
+    .populate("departmentId", "name code color icon leadId")
+    .populate({ path: "sourceDepartmentId", select: "name code color", strictPopulate: false })
+    .populate({ path: "blockedByDeptId", select: "name code color", strictPopulate: false })
     .populate("dependencyTaskId", "title status")
     .lean();
 
   return {
     success: true,
-    message: newStatus === "done" ? "Task marked done & dependent tasks unlocked!" : `Task moved to ${newStatus}.`,
+    message:
+      data.status === "done"
+        ? "Task marked done & dependent handshakes unlocked!"
+        : data.status === "blocked"
+        ? "Task marked as blocked. Department lead notified."
+        : `Task moved to ${data.status.toUpperCase()}.`,
     task: populated,
+  };
+}
+
+/**
+ * ADD TASK COMMENT / ACTIVITY
+ */
+export async function addTaskCommentService(
+  userId: string,
+  taskId: string,
+  text: string
+) {
+  await connectToDatabase();
+
+  const user = await User.findById(userId).select("name profileImage").lean();
+  if (!user) throw { status: 404, message: "User not found" };
+
+  const task = await Task.findById(taskId);
+  if (!task) throw { status: 404, message: "Task not found" };
+
+  const newComment = {
+    userId: new mongoose.Types.ObjectId(userId),
+    userName: user.name || "Member",
+    userImage: user.profileImage || "",
+    text: text.trim(),
+    createdAt: new Date(),
+  };
+
+  task.comments.push(newComment);
+  await task.save();
+
+  return {
+    success: true,
+    message: "Comment added.",
+    comment: newComment,
   };
 }
 

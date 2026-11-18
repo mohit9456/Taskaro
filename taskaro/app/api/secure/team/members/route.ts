@@ -3,6 +3,7 @@ import { getAuthUser } from "@/server/utils/getAuthUser";
 import {
   inviteOrgMemberService,
   removeOrgMemberService,
+  updateMemberRoleService,
 } from "@/server/services/team.service";
 
 export async function POST(req: Request) {
@@ -28,6 +29,38 @@ export async function POST(req: Request) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to invite member" },
+      { status: error.status || 500 }
+    );
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const user = await getAuthUser(req);
+    const body = await req.json();
+
+    if (!body.orgId || !body.memberId) {
+      return NextResponse.json(
+        { error: "orgId and memberId are required." },
+        { status: 400 }
+      );
+    }
+
+    const result = await updateMemberRoleService(
+      user._id.toString(),
+      body.orgId,
+      body.memberId,
+      {
+        role: body.role,
+        departmentId: body.departmentId,
+        jobTitle: body.jobTitle,
+      }
+    );
+
+    return NextResponse.json(result, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to update member role." },
       { status: error.status || 500 }
     );
   }

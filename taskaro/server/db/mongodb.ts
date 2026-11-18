@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 
+// Disable strictPopulate globally so population across dynamic or refreshed schemas never throws
+mongoose.set('strictPopulate', false);
+
 let cached = global.mongoose;
 
 if (!cached) {

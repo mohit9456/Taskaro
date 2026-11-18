@@ -28,7 +28,7 @@ const OrgMemberSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["owner", "lead", "member"],
+      enum: ["owner", "admin", "lead", "member"],
       default: "member",
     },
     jobTitle: {
@@ -59,14 +59,16 @@ const OrgMemberSchema = new mongoose.Schema(
       default: Date.now,
     },
   },
-  { timestamps: true }
+  { timestamps: true, strictPopulate: false }
 );
 
 // One membership per user/email per org
 OrgMemberSchema.index({ orgId: 1, inviteEmail: 1 }, { unique: true });
 
-const OrgMember: any =
-  mongoose.models.OrgMember ||
-  mongoose.model("OrgMember", OrgMemberSchema);
+if (mongoose.models.OrgMember) {
+  delete (mongoose.models as any).OrgMember;
+}
+
+const OrgMember: any = mongoose.model("OrgMember", OrgMemberSchema);
 
 export default OrgMember;

@@ -45,14 +45,16 @@ const DepartmentSchema = new mongoose.Schema(
       default: false,
     },
   },
-  { timestamps: true }
+  { timestamps: true, strictPopulate: false }
 );
 
 // Compound index to ensure department name is unique per organization
 DepartmentSchema.index({ orgId: 1, name: 1 }, { unique: true });
 
-const Department: any =
-  mongoose.models.Department ||
-  mongoose.model("Department", DepartmentSchema);
+if (mongoose.models.Department) {
+  delete (mongoose.models as any).Department;
+}
+
+const Department: any = mongoose.model("Department", DepartmentSchema);
 
 export default Department;

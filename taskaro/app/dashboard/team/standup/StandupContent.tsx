@@ -61,6 +61,7 @@ export default function StandupContent() {
   // Current User Submission Form
   const [focusInput, setFocusInput] = useState("");
   const [focusTasks, setFocusTasks] = useState<string[]>([]);
+  const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
   const [hasBlocker, setHasBlocker] = useState(false);
   const [blockersText, setBlockersText] = useState("");
   const [estimatedHours, setEstimatedHours] = useState(8);
@@ -88,6 +89,17 @@ export default function StandupContent() {
           const firstDeptId = detailsData.departments[0]._id;
           setSelectedDeptId(firstDeptId);
           await fetchDepartmentPulses(currentOrgId, firstDeptId, selectedDate);
+        }
+
+        // Fetch user assigned active tasks
+        const tasksRes = await fetch(`/api/secure/team/tasks?orgId=${currentOrgId}`);
+        const tasksData = await tasksRes.json();
+        if (tasksRes.ok && tasksData.tasks) {
+          const myTasks = tasksData.tasks.filter(
+            (t: any) =>
+              t.assignedTo?._id === (session?.user as any)?.id && t.status !== "done"
+          );
+          setMyAssignedTasks(myTasks);
         }
       }
     } catch {
@@ -252,6 +264,34 @@ export default function StandupContent() {
         </div>
       </div>
 
+      {/* EXPLANATORY HOW-IT-WORKS HERO */}
+      <div className="p-5 rounded-3xl bg-linear-to-r from-indigo-500/10 via-purple-500/10 to-amber-500/10 border border-indigo-500/25 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <div className="space-y-1">
+          <span className="font-extrabold text-indigo-400 flex items-center gap-1.5">
+            <Zap className="w-4 h-4" /> 1. No Boring 30-min Calls
+          </span>
+          <p className="text-(--color-desc) leading-relaxed">
+            Eliminate scheduled meeting fatigue. Share your 3 daily focus areas in 60 seconds whenever your day starts.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <span className="font-extrabold text-amber-400 flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4" /> 2. Instant Blocker Alert
+          </span>
+          <p className="text-(--color-desc) leading-relaxed">
+            Waiting on Design or Backend? Flag it here to light up an alert on your Lead's radar immediately.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <span className="font-extrabold text-emerald-400 flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4" /> 3. Async Alignment
+          </span>
+          <p className="text-(--color-desc) leading-relaxed">
+            Leads and founders review the department radar in 2 minutes, unblocking team members with zero interruptions.
+          </p>
+        </div>
+      </div>
+
       {/* SECTION 1: MY DAILY PULSE FORM */}
       <div className="rounded-3xl bg-(--card-bg) border border-(--color-border) p-6 shadow-xs space-y-5">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -267,9 +307,38 @@ export default function StandupContent() {
         <form onSubmit={handleSubmitPulse} className="space-y-4">
           {/* FOCUS TASKS */}
           <div>
-            <label className="block text-xs font-bold text-(--color-text) mb-1.5">
-              1. What are your 1-3 primary focus tasks today?
-            </label>
+            <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+              <label className="block text-xs font-bold text-(--color-text)">
+                1. What are your 1-3 primary focus tasks today?
+              </label>
+              {myAssignedTasks.length > 0 && (
+                <span className="text-[11px] text-(--color-desc)">
+                  Click any assigned task below to quick-import:
+                </span>
+              )}
+            </div>
+
+            {/* 1-CLICK IMPORT OF ASSIGNED TASKS */}
+            {myAssignedTasks.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                {myAssignedTasks.map((t) => (
+                  <button
+                    key={t._id}
+                    type="button"
+                    onClick={() => {
+                      if (!focusTasks.includes(t.title) && focusTasks.length < 5) {
+                        setFocusTasks([...focusTasks, t.title]);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-(--hover-card-bg) hover:bg-indigo-600 hover:text-white border border-(--color-border) text-(--color-text) transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span className="truncate max-w-[200px]">{t.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 type="text"

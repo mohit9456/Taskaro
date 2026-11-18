@@ -61,11 +61,13 @@ const OrganizationSchema = new mongoose.Schema(
       },
     },
   },
-  { timestamps: true }
+  { timestamps: true, strictPopulate: false }
 );
 
-const Organization: any =
-  mongoose.models.Organization ||
-  mongoose.model("Organization", OrganizationSchema);
+if (mongoose.models.Organization) {
+  delete (mongoose.models as any).Organization;
+}
+
+const Organization: any = mongoose.model("Organization", OrganizationSchema);
 
 export default Organization;

@@ -1,13 +1,22 @@
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+function getTransporter() {
+  const port = Number(process.env.EMAIL_PORT) || 587;
+  const isSecure = port === 465;
+
+  return nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || "smtp.gmail.com",
+    port,
+    secure: isSecure,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+}
 
 export async function sendMailService({
   to,
@@ -19,14 +28,22 @@ export async function sendMailService({
   subject: string;
   text?: string;
   html?: string;
-}) {
-  const mailOptions = {
-    from: process.env.EMAIL_USER || "noreply.taskaro@gmail.com",
-    to,
-    subject,
-    text: text || "",
-    html: html || undefined,
-  };
+}): Promise < { success: boolean; error?: string } > {
+  try {
+    const transporter = getTransporter();
+    const mailOptions = {
+      from: process.env.EMAIL_USER || "noreply.taskaro@gmail.com",
+      to,
+      subject,
+      text: text || "",
+      html: html || undefined,
+    };
 
-  await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Mailer] Email dispatched successfully to ${to}. MessageId: ${info?.messageId}`);
+    return { success: true };
+  } catch(err: any) {
+    console.error(`[Mailer] Failed to send email to ${to}:`, err?.message || err);
+    return { success: false, error: err?.message || "Failed to dispatch email." };
+  }
 }

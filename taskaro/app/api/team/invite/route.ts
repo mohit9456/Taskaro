@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   verifyInviteTokenService,
   acceptInviteService,
+  declineInviteService,
 } from "@/server/services/team.service";
 import { auth } from "@/lib/auth";
 
@@ -54,6 +55,39 @@ export async function POST(req: Request) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to accept invitation." },
+      { status: error.status || 500 }
+    );
+  }
+}
+
+// DELETE /api/team/invite?token=... (Decline invitation)
+export async function DELETE(req: Request) {
+  try {
+    const session = await auth();
+    if (!session?.user || !(session.user as any).id) {
+      return NextResponse.json(
+        { error: "Unauthorized." },
+        { status: 401 }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const token = searchParams.get("token");
+
+    if (!token) {
+      return NextResponse.json(
+        { error: "Invitation token is required." },
+        { status: 400 }
+      );
+    }
+
+    const userId = (session.user as any).id;
+    const result = await declineInviteService(userId, token);
+
+    return NextResponse.json(result, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to decline invitation." },
       { status: error.status || 500 }
     );
   }

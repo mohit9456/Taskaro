@@ -4,6 +4,7 @@ import {
   createDepartmentTaskService,
   getDepartmentTasksService,
   updateDepartmentTaskStatusService,
+  delegateDepartmentTaskService,
 } from "@/server/services/team.service";
 
 // GET /api/secure/team/tasks?orgId=...&departmentId=...
@@ -36,15 +37,15 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/secure/team/tasks (Delegate task to department member)
+// POST /api/secure/team/tasks (Create task or route cross-dept work order)
 export async function POST(req: Request) {
   try {
     const user = await getAuthUser(req);
     const body = await req.json();
 
-    if (!body.orgId || !body.departmentId || !body.title || !body.assignedTo) {
+    if (!body.orgId || !body.departmentId || !body.title) {
       return NextResponse.json(
-        { error: "orgId, departmentId, title, and assignedTo are required." },
+        { error: "orgId, departmentId, and title are required." },
         { status: 400 }
       );
     }
@@ -52,13 +53,15 @@ export async function POST(req: Request) {
     const result = await createDepartmentTaskService(user._id.toString(), {
       orgId: body.orgId,
       departmentId: body.departmentId,
+      sourceDepartmentId: body.sourceDepartmentId,
       title: body.title,
       description: body.description,
       priority: body.priority,
       dueDate: body.dueDate,
       estimatedHours: body.estimatedHours,
-      assignedTo: body.assignedTo,
+      assignedTo: body.assignedTo || null, // null if routing to department intake queue
       dependencyTaskId: body.dependencyTaskId,
+      linkedTicketId: body.linkedTicketId,
     });
 
     return NextResponse.json(result, { status: 201 });
@@ -70,15 +73,33 @@ export async function POST(req: Request) {
   }
 }
 
-// PATCH /api/secure/team/tasks (Update task status & unlock dependencies)
+// PATCH /api/secure/team/tasks (Update status / proofs / blockers OR delegate intake task)
 export async function PATCH(req: Request) {
   try {
     const user = await getAuthUser(req);
     const body = await req.json();
 
-    if (!body.taskId || !body.status) {
+    if (!body.taskId) {
       return NextResponse.json(
-        { error: "taskId and status are required." },
+        { error: "taskId is required." },
+        { status: 400 }
+      );
+    }
+
+    // Action 1: Delegate an intake task to a specific department member
+    if (body.action === "delegate" && body.assignedTo) {
+      const result = await delegateDepartmentTaskService(
+        user._id.toString(),
+        body.taskId,
+        body.assignedTo
+      );
+      return NextResponse.json(result, { status: 200 });
+    }
+
+    // Action 2: Update status, deliverable proofs, or blocker handshake
+    if (!body.status) {
+      return NextResponse.json(
+        { error: "status is required for status updates." },
         { status: 400 }
       );
     }
@@ -86,7 +107,13 @@ export async function PATCH(req: Request) {
     const result = await updateDepartmentTaskStatusService(
       user._id.toString(),
       body.taskId,
-      body.status
+      {
+        status: body.status,
+        proofUrl: body.proofUrl,
+        completionNotes: body.completionNotes,
+        blockedByDeptId: body.blockedByDeptId,
+        blockerReason: body.blockerReason,
+      }
     );
 
     return NextResponse.json(result, { status: 200 });

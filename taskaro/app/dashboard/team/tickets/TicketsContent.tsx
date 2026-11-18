@@ -60,6 +60,12 @@ interface TicketData {
   isOverdue?: boolean;
   slaRemainingHours?: number | null;
   resolutionSummary?: string;
+  convertedTaskId?: {
+    _id: string;
+    title: string;
+    status: string;
+    priority: string;
+  } | null;
   createdAt: string;
 }
 
@@ -229,6 +235,27 @@ export default function TicketsContent() {
     await handleUpdateStatus(resolveModalTicket._id, "resolved", resolutionText);
     setResolveModalTicket(null);
     setResolutionText("");
+  };
+
+  // Handle Convert Ticket to Department Task
+  const handleConvertToTask = async (ticketId: string) => {
+    try {
+      setFeedback(null);
+      const res = await fetch("/api/secure/team/tickets/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({ type: "success", message: data.message || "Ticket converted to Department Task!" });
+        if (orgId) await fetchTickets(orgId);
+      } else {
+        setFeedback({ type: "error", message: data.error || "Failed to convert ticket." });
+      }
+    } catch {
+      setFeedback({ type: "error", message: "Network error converting ticket." });
+    }
   };
 
   // Stats
@@ -514,6 +541,27 @@ export default function TicketsContent() {
 
                 {/* ACTION BUTTONS */}
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  {t.convertedTaskId ? (
+                    <Link
+                      href="/dashboard/team"
+                      className="px-3 py-1.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400 text-xs font-bold flex items-center gap-1.5 hover:underline"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Task Linked</span>
+                    </Link>
+                  ) : (
+                    t.status !== "resolved" && (
+                      <button
+                        onClick={() => handleConvertToTask(t._id)}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
+                        title="Convert this ticket into an actionable department task in intake"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Convert to Task</span>
+                      </button>
+                    )
+                  )}
+
                   <Link
                     href={`/dashboard/team/chat?channelType=ticket&ticketId=${t._id}`}
                     className="px-3 py-1.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) hover:border-(--color-primary) text-(--color-text) text-xs font-bold flex items-center gap-1.5 transition-colors"

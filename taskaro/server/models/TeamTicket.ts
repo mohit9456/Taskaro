@@ -105,14 +105,22 @@ const TeamTicketSchema = new mongoose.Schema(
         type: String,
       },
     ],
+    // 🔗 Interconnection: Converted Department Task
+    convertedTaskId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Task",
+      default: null,
+    },
   },
-  { timestamps: true }
+  { timestamps: true, strictPopulate: false }
 );
 
 TeamTicketSchema.index({ orgId: 1, ticketCode: 1 }, { unique: true });
 
-const TeamTicket: any =
-  mongoose.models.TeamTicket ||
-  mongoose.model("TeamTicket", TeamTicketSchema);
+if (mongoose.models.TeamTicket) {
+  delete (mongoose.models as any).TeamTicket;
+}
+
+const TeamTicket: any = mongoose.model("TeamTicket", TeamTicketSchema);
 
 export default TeamTicket;
