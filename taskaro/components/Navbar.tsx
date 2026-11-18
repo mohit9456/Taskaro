@@ -36,11 +36,6 @@ const navItems: NavItem[] = [
 export default function Navbar() {
   const pathname = usePathname();
 
-  // Hide marketing navbar on dashboard views (dashboard has its own dedicated fixed sidebar)
-  if (pathname?.startsWith("/dashboard")) {
-    return null;
-  }
-
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -80,6 +75,12 @@ export default function Navbar() {
     return parts[0][0].toUpperCase();
   };
 
+  // Hide marketing navbar on dashboard views (dashboard has its own dedicated fixed sidebar)
+  // NOTE: Must remain AFTER all React hooks to preserve hook call order across renders
+  if (pathname?.startsWith("/dashboard")) {
+    return null;
+  }
+
   return (
     <header className="sticky top-0 z-50 w-full backdrop-blur-xl bg-(--card-bg)/80 border-b border-(--color-border)/80 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -107,11 +108,10 @@ export default function Navbar() {
                 <Link
                   key={item.id}
                   href={item.url}
-                  className={`relative px-3.5 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                    isActive
+                  className={`relative px-3.5 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${isActive
                       ? "text-(--color-primary) bg-(--hover-card-bg) shadow-xs"
                       : "text-(--color-content) hover:text-(--color-text) hover:bg-(--hover-card-bg)/60"
-                  }`}
+                    }`}
                 >
                   {item.name}
                   {isActive && (
@@ -158,9 +158,8 @@ export default function Navbar() {
                     </span>
                   )}
                   <ChevronDown
-                    className={`w-3.5 h-3.5 text-(--color-desc) transition-transform duration-200 ${
-                      profileDropdownOpen ? "rotate-180" : ""
-                    }`}
+                    className={`w-3.5 h-3.5 text-(--color-desc) transition-transform duration-200 ${profileDropdownOpen ? "rotate-180" : ""
+                      }`}
                   />
                 </button>
 
@@ -294,11 +293,10 @@ export default function Navbar() {
                   key={item.id}
                   href={item.url}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                    isActive
+                  className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${isActive
                       ? "text-(--color-primary) bg-(--hover-card-bg) font-semibold"
                       : "text-(--color-content) hover:text-(--color-text) hover:bg-(--hover-card-bg)/60"
-                  }`}
+                    }`}
                 >
                   <span>{item.name}</span>
                   <ArrowRight className="w-4 h-4 opacity-40" />

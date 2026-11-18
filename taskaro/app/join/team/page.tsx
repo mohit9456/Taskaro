@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import JoinTeamContent from "./JoinTeamContent";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Join Team Workspace | Taskaro Invitation",
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function JoinTeamPage() {
-  return <JoinTeamContent />;
+  return (
+    <Suspense fallback={<div>Loading chat...</div>}>
+      <JoinTeamContent />
+    </Suspense>
+  );
 }
