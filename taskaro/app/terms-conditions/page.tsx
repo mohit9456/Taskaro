@@ -85,7 +85,7 @@ export default function TermsConditionsPage() {
                 href="/refund-policy"
                 className="text-xs text-(--color-primary) font-semibold hover:underline block"
               >
-                View Cancellation & Refund Policy $\rightarrow$
+                View Cancellation & Refund Policy &rarr;
               </Link>
             </div>
           </aside>

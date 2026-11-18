@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import { Suspense } from "react";
 import TeamChatContent from "./TeamChatContent";
 
 export const metadata: Metadata = {
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function TeamChatPage() {
-  return <TeamChatContent />;
+  return (
+    <Suspense fallback={<div>Loading chat...</div>}>
+      <TeamChatContent />
+    </Suspense>
+  );
 }

@@ -26,6 +26,8 @@ import {
   Ticket,
   MessageSquare,
   Activity,
+  ArrowLeft,
+  Globe,
 } from "lucide-react";
 
 interface NavItemConfig {
@@ -164,7 +166,16 @@ export default function DashboardSidebar() {
             />
           </Link>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-(--hover-card-bg) border border-(--color-border) text-xs font-bold text-(--color-text) hover:border-(--color-primary) transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-(--color-primary)" />
+            <span>Website</span>
+          </Link>
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* MOBILE BACKDROP OVERLAY */}
@@ -205,6 +216,20 @@ export default function DashboardSidebar() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* BACK TO WEBSITE SHORTCUT */}
+        <div className="px-3 pt-3 pb-0">
+          <Link
+            href="/"
+            className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-(--color-desc) hover:text-(--color-text) bg-(--hover-card-bg)/80 hover:bg-(--hover-card-bg) border border-(--color-border) transition-all group"
+          >
+            <div className="flex items-center gap-2">
+              <ArrowLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5 text-(--color-primary)" />
+              <span>Back to Website</span>
+            </div>
+            <Globe className="w-3.5 h-3.5 opacity-60" />
+          </Link>
         </div>
 
         {/* SCROLLABLE NAVIGATION LIST */}

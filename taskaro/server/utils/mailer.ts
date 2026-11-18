@@ -9,13 +9,23 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export async function sendMailService({ to, subject, text }) {
-  
+export async function sendMailService({
+  to,
+  subject,
+  text,
+  html,
+}: {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+}) {
   const mailOptions = {
-    from: process.env.EMAIL_USER,
+    from: process.env.EMAIL_USER || "noreply.taskaro@gmail.com",
     to,
     subject,
-    text,
+    text: text || "",
+    html: html || undefined,
   };
 
   await transporter.sendMail(mailOptions);
