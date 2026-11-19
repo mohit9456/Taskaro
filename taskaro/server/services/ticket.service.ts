@@ -120,12 +120,17 @@ export async function listTicketsService(
 
   const rawTickets = await TeamTicket.find(query)
     .populate("sourceDeptId", "name code color icon")
-    .populate("targetDeptId", "name code color icon")
+    .populate("targetDeptId", "name code color icon leadId")
     .populate("createdBy", "name email profileImage")
     .populate("assignedLeadId", "name email profileImage")
     .populate("assignedMemberId", "name email profileImage")
     .populate("resolvedBy", "name email profileImage")
-    .populate({ path: "convertedTaskId", select: "title status priority assignedTo", strictPopulate: false })
+    .populate({
+      path: "convertedTaskId",
+      select: "title status priority assignedTo dueDate",
+      populate: { path: "assignedTo", select: "name email profileImage" },
+      strictPopulate: false,
+    })
     .sort({ isEscalated: -1, createdAt: -1 })
     .lean();
 
@@ -278,6 +283,12 @@ export async function convertTicketToTaskService(
 
   ticket.convertedTaskId = task._id;
   ticket.status = "in_progress";
+  if (data?.assignedTo) {
+    ticket.assignedMemberId = new mongoose.Types.ObjectId(data.assignedTo);
+  }
+  if (data?.dueDate) {
+    ticket.slaDeadline = new Date(data.dueDate);
+  }
   await ticket.save();
 
   // If assignedTo, notify member; if unassigned, notify target dept lead
@@ -306,5 +317,52 @@ export async function convertTicketToTaskService(
     message: `Ticket #${ticket.ticketCode} converted to Task in ${ticket.targetDeptId.name}!`,
     task,
     ticket,
+  };
+}
+
+/**
+ * DELETE TICKET / QUERY
+ * Allowed for ticket creator, target dept lead, or owner/admin.
+ */
+export async function deleteTicketService(userId: string, ticketId: string) {
+  await connectToDatabase();
+
+  const ticket = await TeamTicket.findById(ticketId).populate("targetDeptId");
+  if (!ticket) throw { status: 404, message: "Ticket not found" };
+
+  const Organization = (await import("../models/Organization")).default;
+  const OrgMember = (await import("../models/OrgMember")).default;
+
+  const org = await Organization.findById(ticket.orgId).lean();
+  const caller = await OrgMember.findOne({
+    orgId: ticket.orgId,
+    userId: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const isOwner = org?.ownerId?.toString() === userId || caller?.role === "owner";
+  const isAdmin = caller?.role === "admin";
+  const isCreator = ticket.createdBy?.toString() === userId;
+  const isTargetDeptLead = (ticket.targetDeptId as any)?.leadId?.toString() === userId;
+
+  if (!isOwner && !isAdmin && !isCreator && !isTargetDeptLead) {
+    throw {
+      status: 403,
+      message: "You do not have permission to delete this ticket. Only the creator, Admins, or Target Department Lead can delete it.",
+    };
+  }
+
+  // If converted to a task, unlink the task
+  if (ticket.convertedTaskId) {
+    const Task = (await import("../models/Task")).default;
+    await Task.findByIdAndUpdate(ticket.convertedTaskId, {
+      $set: { linkedTicketId: null },
+    });
+  }
+
+  await TeamTicket.findByIdAndDelete(ticketId);
+
+  return {
+    success: true,
+    message: `Ticket #${ticket.ticketCode} was deleted.`,
   };
 }

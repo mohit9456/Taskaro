@@ -17,6 +17,9 @@ import {
   Sparkles,
   Send,
   UserCheck,
+  Trash2,
+  Calendar,
+  UserPlus,
 } from "lucide-react";
 
 interface TicketData {
@@ -38,6 +41,7 @@ interface TicketData {
     name: string;
     code: string;
     color: string;
+    leadId?: string;
   };
   createdBy: {
     _id: string;
@@ -65,17 +69,28 @@ interface TicketData {
     title: string;
     status: string;
     priority: string;
+    dueDate?: string;
+    assignedTo?: {
+      _id: string;
+      name: string;
+      email: string;
+      profileImage?: string;
+    };
   } | null;
   createdAt: string;
 }
 
 export default function TicketsContent() {
   const { data: session } = useSession();
+  const currentUserId = (session?.user as any)?.id;
 
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [departments, setDepartments] = useState<any[]>([]);
+  const [orgMembers, setOrgMembers] = useState<any[]>([]);
   const [tickets, setTickets] = useState<TicketData[]>([]);
+  const [myRole, setMyRole] = useState<string>("member");
+  const [isOwnerOrAdmin, setIsOwnerOrAdmin] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -90,6 +105,12 @@ export default function TicketsContent() {
   const [showRaiseModal, setShowRaiseModal] = useState(false);
   const [resolveModalTicket, setResolveModalTicket] = useState<TicketData | null>(null);
   const [resolutionText, setResolutionText] = useState("");
+  const [showDeleteTicketModal, setShowDeleteTicketModal] = useState<TicketData | null>(null);
+  const [convertModalTicket, setConvertModalTicket] = useState<TicketData | null>(null);
+  const [convertForm, setConvertForm] = useState({
+    assignedTo: "",
+    dueDate: "",
+  });
 
   // Raise Form
   const [raiseForm, setRaiseForm] = useState({
@@ -114,16 +135,27 @@ export default function TicketsContent() {
         const currentOrgId = orgData.organizations[0].org._id;
         setOrgId(currentOrgId);
 
-        // Fetch details to get departments
+        // Fetch details to get departments and members
         const detailsRes = await fetch(`/api/secure/team/org/${currentOrgId}`);
         const detailsData = await detailsRes.json();
-        if (detailsRes.ok && detailsData.departments) {
-          setDepartments(detailsData.departments);
-          if (detailsData.departments.length >= 2) {
+        if (detailsRes.ok) {
+          const depts = detailsData.allDepartments || detailsData.departments || [];
+          setDepartments(depts);
+          setOrgMembers(detailsData.members || []);
+          setMyRole(detailsData.myRole || "member");
+          setIsOwnerOrAdmin(Boolean(detailsData.isOwnerOrAdmin));
+
+          if (depts.length >= 2) {
             setRaiseForm((prev) => ({
               ...prev,
-              sourceDeptId: detailsData.departments[0]._id,
-              targetDeptId: detailsData.departments[1]._id,
+              sourceDeptId: depts[0]._id,
+              targetDeptId: depts[1]._id,
+            }));
+          } else if (depts.length === 1) {
+            setRaiseForm((prev) => ({
+              ...prev,
+              sourceDeptId: depts[0]._id,
+              targetDeptId: depts[0]._id,
             }));
           }
         }
@@ -237,24 +269,69 @@ export default function TicketsContent() {
     setResolutionText("");
   };
 
-  // Handle Convert Ticket to Department Task
-  const handleConvertToTask = async (ticketId: string) => {
+  // Handle Convert Ticket to Department Task Submit
+  const handleConvertSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!convertModalTicket) return;
+
     try {
+      setSubmitting(true);
       setFeedback(null);
       const res = await fetch("/api/secure/team/tickets/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId }),
+        body: JSON.stringify({
+          ticketId: convertModalTicket._id,
+          assignedTo: convertForm.assignedTo || null,
+          dueDate: convertForm.dueDate || null,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
-        setFeedback({ type: "success", message: data.message || "Ticket converted to Department Task!" });
+        setFeedback({
+          type: "success",
+          message:
+            data.message ||
+            `Query #${convertModalTicket.ticketCode} assigned as department task with SLA timeline!`,
+        });
+        setConvertModalTicket(null);
+        setConvertForm({ assignedTo: "", dueDate: "" });
         if (orgId) await fetchTickets(orgId);
       } else {
         setFeedback({ type: "error", message: data.error || "Failed to convert ticket." });
       }
     } catch {
       setFeedback({ type: "error", message: "Network error converting ticket." });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle Delete Ticket Confirmation
+  const handleDeleteTicketConfirm = async () => {
+    if (!showDeleteTicketModal) return;
+
+    try {
+      setSubmitting(true);
+      setFeedback(null);
+      const res = await fetch(`/api/secure/team/tickets?ticketId=${showDeleteTicketModal._id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({
+          type: "success",
+          message: `Ticket #${showDeleteTicketModal.ticketCode} was deleted.`,
+        });
+        setShowDeleteTicketModal(null);
+        if (orgId) await fetchTickets(orgId);
+      } else {
+        setFeedback({ type: "error", message: data.error || "Failed to delete ticket." });
+      }
+    } catch {
+      setFeedback({ type: "error", message: "Network error deleting ticket." });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -514,9 +591,35 @@ export default function TicketsContent() {
                     </div>
                   )}
 
-                  {/* META STRIP */}
+                  {/* META STRIP & RESOLUTION TIMELINE */}
                   <div className="flex items-center gap-4 text-[11px] text-(--color-desc) pt-1 flex-wrap">
-                    <span>Raised by <b className="text-(--color-text)">{t.createdBy?.name}</b></span>
+                    <span>
+                      Raised by <b className="text-(--color-text)">{t.createdBy?.name}</b> ({t.sourceDeptId?.name || "General"})
+                    </span>
+
+                    {/* LIVE RESOLUTION TIMELINE & ASSIGNEE */}
+                    {t.convertedTaskId ? (
+                      <>
+                        <span className="text-purple-400 font-semibold flex items-center gap-1">
+                          <UserCheck className="w-3.5 h-3.5" />
+                          Assigned: <b className="text-(--color-text)">{t.convertedTaskId?.assignedTo?.name || t.assignedMemberId?.name || "Target Dept Intake"}</b>
+                        </span>
+                        {(t.convertedTaskId?.dueDate || t.slaDeadline) && (
+                          <span className="text-indigo-400 font-bold flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            Est. Resolution: <b className="text-(--color-text)">{new Date(t.convertedTaskId?.dueDate || t.slaDeadline!).toLocaleDateString()}</b>
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      t.status === "open" && (
+                        <span className="text-amber-500 font-semibold flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          Awaiting {t.targetDeptId?.name} Lead Review
+                        </span>
+                      )
+                    )}
+
                     {t.assignedLeadId && (
                       <span>Lead: <b className="text-(--color-text)">{t.assignedLeadId?.name}</b></span>
                     )}
@@ -541,56 +644,83 @@ export default function TicketsContent() {
 
                 {/* ACTION BUTTONS */}
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  {t.convertedTaskId ? (
-                    <Link
-                      href="/dashboard/team"
-                      className="px-3 py-1.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400 text-xs font-bold flex items-center gap-1.5 hover:underline"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Task Linked</span>
-                    </Link>
-                  ) : (
-                    t.status !== "resolved" && (
-                      <button
-                        onClick={() => handleConvertToTask(t._id)}
-                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
-                        title="Convert this ticket into an actionable department task in intake"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Convert to Task</span>
-                      </button>
-                    )
-                  )}
+                  {(() => {
+                    const isTargetDeptLead = (t.targetDeptId as any)?.leadId === currentUserId;
+                    const canAssignTicket = isOwnerOrAdmin || isTargetDeptLead;
+                    const canDeleteTicket =
+                      isOwnerOrAdmin ||
+                      isTargetDeptLead ||
+                      t.createdBy?._id === currentUserId ||
+                      (t.createdBy as any) === currentUserId;
 
-                  <Link
-                    href={`/dashboard/team/chat?channelType=ticket&ticketId=${t._id}`}
-                    className="px-3 py-1.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) hover:border-(--color-primary) text-(--color-text) text-xs font-bold flex items-center gap-1.5 transition-colors"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Huddle Chat</span>
-                  </Link>
+                    return (
+                      <>
+                        {t.convertedTaskId ? (
+                          <Link
+                            href="/dashboard/team"
+                            className="px-3 py-1.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400 text-xs font-bold flex items-center gap-1.5 hover:underline"
+                            title="Task has been created in department intake"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Task Linked</span>
+                          </Link>
+                        ) : (
+                          t.status !== "resolved" && (
+                            canAssignTicket ? (
+                              <button
+                                onClick={() => {
+                                  setConvertModalTicket(t);
+                                  setConvertForm({ assignedTo: "", dueDate: "" });
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 transition-all"
+                                title="Target Lead can delegate this query as a department task"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Assign as Department Task</span>
+                              </button>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-semibold flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>Awaiting Lead Assignment</span>
+                              </span>
+                            )
+                          )
+                        )}
 
-                  {t.status !== "resolved" && (
-                    <button
-                      onClick={() => {
-                        setResolveModalTicket(t);
-                        setResolutionText("");
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Resolve</span>
-                    </button>
-                  )}
+                        <Link
+                          href={`/dashboard/team/chat?channelType=ticket&ticketId=${t._id}`}
+                          className="px-3 py-1.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) hover:border-(--color-primary) text-(--color-text) text-xs font-bold flex items-center gap-1.5 transition-colors"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Huddle Chat</span>
+                        </Link>
 
-                  {t.status === "open" && (
-                    <button
-                      onClick={() => handleUpdateStatus(t._id, "in_progress")}
-                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer"
-                    >
-                      Take On
-                    </button>
-                  )}
+                        {t.status !== "resolved" && canAssignTicket && (
+                          <button
+                            onClick={() => {
+                              setResolveModalTicket(t);
+                              setResolutionText("");
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Resolve</span>
+                          </button>
+                        )}
+
+                        {/* DELETE TICKET BUTTON */}
+                        {canDeleteTicket && (
+                          <button
+                            onClick={() => setShowDeleteTicketModal(t)}
+                            className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                            title="Delete Query Ticket"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             );
@@ -759,6 +889,188 @@ export default function TicketsContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: ASSIGN QUERY AS DEPARTMENT TASK */}
+      {convertModalTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-(--card-bg) border border-indigo-500/30 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-500/15 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/20 font-bold">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400">
+                    #{convertModalTicket.ticketCode}
+                  </span>
+                  <h3 className="text-base font-bold text-(--color-text)">
+                    Assign Query as Department Task
+                  </h3>
+                </div>
+                <p className="text-xs text-(--color-desc) mt-0.5">
+                  Convert this query into an active task for <b className="text-(--color-text)">{convertModalTicket.targetDeptId?.name}</b> with an estimated resolution timeline.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-1.5 text-xs">
+              <p className="font-bold text-(--color-text)">{convertModalTicket.title}</p>
+              <p className="text-[11px] text-(--color-desc)">
+                Raised by <b className="text-(--color-text)">{convertModalTicket.createdBy?.name}</b> ({convertModalTicket.sourceDeptId?.name}) → Assigned to <b className="text-indigo-400">{convertModalTicket.targetDeptId?.name}</b>
+              </p>
+            </div>
+
+            <form onSubmit={handleConvertSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-(--color-text) mb-1">
+                  Assign to Member ({convertModalTicket.targetDeptId?.name})
+                </label>
+                <select
+                  value={convertForm.assignedTo}
+                  onChange={(e) => setConvertForm({ ...convertForm, assignedTo: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text) focus:outline-hidden"
+                >
+                  <option value="">📥 Unassigned (Department Intake Backlog)</option>
+                  {orgMembers
+                    .filter(
+                      (m) =>
+                        m.user?._id &&
+                        m.status === "active" &&
+                        (!m.department || m.department._id === convertModalTicket.targetDeptId?._id)
+                    )
+                    .map((m) => (
+                      <option key={m._id} value={m.user._id}>
+                        {m.user.name} ({m.jobTitle || "Member"})
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[10px] text-(--color-desc) mt-0.5">
+                  Select a member to immediately notify them, or leave unassigned in department intake.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-(--color-text) mb-1">
+                  Estimated Resolution Date / Timeline *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={convertForm.dueDate}
+                  onChange={(e) => setConvertForm({ ...convertForm, dueDate: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text) focus:outline-hidden"
+                />
+                <p className="text-[10px] text-(--color-desc) mt-0.5">
+                  The query creator will see this estimated timeline on their ticket dashboard.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setConvertModalTicket(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-(--hover-card-bg) text-(--color-desc) hover:text-(--color-text) cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  {submitting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Assigning...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Assign Task & Set Timeline</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: DELETE TICKET CONFIRMATION */}
+      {showDeleteTicketModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-(--card-bg) border border-rose-500/30 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0 border border-rose-500/20">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-(--color-text)">
+                  Delete Query Ticket
+                </h3>
+                <p className="text-xs text-(--color-desc) mt-0.5">
+                  Are you sure you want to permanently delete this ticket?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-rose-500/15 text-rose-500">
+                  #{showDeleteTicketModal.ticketCode}
+                </span>
+                <span className="font-bold text-(--color-text) truncate">{showDeleteTicketModal.title}</span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-(--color-border)">
+                <span className="text-(--color-desc)">From:</span>
+                <span className="font-semibold text-(--color-text)">{showDeleteTicketModal.sourceDeptId?.name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Target Department:</span>
+                <span className="font-semibold text-(--color-text)">{showDeleteTicketModal.targetDeptId?.name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Status:</span>
+                <span className="font-bold uppercase text-indigo-400">{showDeleteTicketModal.status}</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-(--color-desc) leading-relaxed">
+              This query ticket and its discussion history will be permanently deleted.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setShowDeleteTicketModal(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleDeleteTicketConfirm}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Ticket</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

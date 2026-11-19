@@ -43,6 +43,7 @@ import {
   X,
   Edit2,
   UserPlus,
+  UserMinus,
 } from "lucide-react";
 
 interface DepartmentData {
@@ -177,7 +178,9 @@ export default function TeamContent() {
     organization: OrganizationData;
     myRole: string;
     isOwnerOrAdmin: boolean;
+    myDepartmentId?: string | null;
     departments: DepartmentData[];
+    allDepartments?: DepartmentData[];
     members: MemberData[];
   } | null>(null);
 
@@ -198,6 +201,16 @@ export default function TeamContent() {
   const [showProofModal, setShowProofModal] = useState<DepartmentTaskData | null>(null);
   const [selectedTaskDrawer, setSelectedTaskDrawer] = useState<DepartmentTaskData | null>(null);
   const [showEditMemberModal, setShowEditMemberModal] = useState<MemberData | null>(null);
+  const [showRemoveMemberModal, setShowRemoveMemberModal] = useState<MemberData | null>(null);
+  const [showDeleteOrgModal, setShowDeleteOrgModal] = useState(false);
+  const [confirmOrgName, setConfirmOrgName] = useState("");
+  const [showInviteSuccessModal, setShowInviteSuccessModal] = useState<{
+    email: string;
+    link?: string;
+    role: string;
+    departmentName?: string;
+  } | null>(null);
+  const [showDeleteTaskModal, setShowDeleteTaskModal] = useState<DepartmentTaskData | null>(null);
 
   // Task & Member state
   const [departmentTasks, setDepartmentTasks] = useState<DepartmentTaskData[]>([]);
@@ -259,12 +272,22 @@ export default function TeamContent() {
   const currentUserId = (session?.user as any)?.id;
 
   const currentOrg = orgDetails?.organization;
-  const isOwnerOrAdmin = Boolean(
-    orgDetails?.isOwnerOrAdmin ||
+  const isOwner = Boolean(
     orgDetails?.myRole === "owner" ||
-    orgDetails?.myRole === "admin" ||
-    (currentOrg && currentOrg.ownerId === currentUserId)
+    (currentOrg && (currentOrg.ownerId === currentUserId || (currentOrg.ownerId as any)?._id === currentUserId))
   );
+  const isAdmin = Boolean(orgDetails?.myRole === "admin");
+  const isOwnerOrAdmin = Boolean(
+    isOwner ||
+    orgDetails?.isOwnerOrAdmin ||
+    isAdmin
+  );
+  const isLead = Boolean(
+    orgDetails?.myRole === "lead" ||
+    orgDetails?.departments?.some((d) => (d.leadId as any)?._id === currentUserId || d.leadId === currentUserId)
+  );
+  const isMember = !isOwnerOrAdmin && !isLead;
+  const canCreateTask = isOwnerOrAdmin || isLead;
 
   // 1. Fetch User Organizations & Pending Invitations
   const fetchOrganizations = async () => {
@@ -499,6 +522,13 @@ export default function TeamContent() {
         if (data.inviteLink) {
           setLastInviteLink(data.inviteLink);
         }
+        const deptName = orgDetails?.departments?.find((d) => d._id === inviteForm.departmentId)?.name || "General Team";
+        setShowInviteSuccessModal({
+          email: inviteForm.email.trim(),
+          link: data.inviteLink,
+          role: inviteForm.role,
+          departmentName: deptName,
+        });
         setShowInviteModal(false);
         setInviteForm({ email: "", departmentId: "", role: "member", jobTitle: "" });
         await fetchOrgDetails(selectedOrgId);
@@ -764,24 +794,98 @@ export default function TeamContent() {
     }
   };
 
-  // Handle Remove Member
-  const handleRemoveMember = async (memberId: string) => {
-    if (!selectedOrgId || !confirm("Are you sure you want to remove this member from the organization?")) return;
+  // Handle Remove Member Confirmation Modal
+  const handleRemoveMemberConfirm = async () => {
+    if (!selectedOrgId || !showRemoveMemberModal) return;
 
     try {
+      setSubmitting(true);
       setFeedback(null);
-      const res = await fetch(`/api/secure/team/members?orgId=${selectedOrgId}&memberId=${memberId}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/secure/team/members?orgId=${selectedOrgId}&memberId=${showRemoveMemberModal._id}`,
+        {
+          method: "DELETE",
+        }
+      );
       const data = await res.json();
       if (res.ok) {
-        setFeedback({ type: "success", message: "Member removed from organization." });
+        setFeedback({
+          type: "success",
+          message: `${showRemoveMemberModal.user?.name || "Member"} removed from organization.`,
+        });
+        setShowRemoveMemberModal(null);
         await fetchOrgDetails(selectedOrgId);
       } else {
         setFeedback({ type: "error", message: data.error || "Failed to remove member." });
       }
     } catch {
       setFeedback({ type: "error", message: "Network error removing member." });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle Delete Organization Project (Cascade deletion of all members and data)
+  const handleDeleteOrganization = async () => {
+    if (!selectedOrgId || !isOwner) return;
+
+    try {
+      setSubmitting(true);
+      setFeedback(null);
+      const res = await fetch(`/api/secure/team/org/${selectedOrgId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({
+          type: "success",
+          message: "Organization project deleted and all members unlinked successfully.",
+        });
+        setShowDeleteOrgModal(false);
+        setConfirmOrgName("");
+        setSelectedOrgId(null);
+        setOrgDetails(null);
+        await fetchOrganizations();
+      } else {
+        setFeedback({ type: "error", message: data.error || "Failed to delete organization." });
+      }
+    } catch {
+      setFeedback({ type: "error", message: "Network error deleting organization." });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle Delete Task Confirmation
+  const handleDeleteTaskConfirm = async () => {
+    if (!showDeleteTaskModal) return;
+
+    try {
+      setSubmitting(true);
+      setFeedback(null);
+      const res = await fetch(`/api/secure/team/tasks?taskId=${showDeleteTaskModal._id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({
+          type: "success",
+          message: `Task '${showDeleteTaskModal.title}' was deleted.`,
+        });
+        setShowDeleteTaskModal(null);
+        if (selectedTaskDrawer?._id === showDeleteTaskModal._id) {
+          setSelectedTaskDrawer(null);
+        }
+        if (selectedOrgId) {
+          await fetchDepartmentTasks(selectedOrgId, selectedDeptFilter);
+        }
+      } else {
+        setFeedback({ type: "error", message: data.error || "Failed to delete task." });
+      }
+    } catch {
+      setFeedback({ type: "error", message: "Network error deleting task." });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1072,6 +1176,20 @@ export default function TeamContent() {
             <Activity className="w-4 h-4 text-amber-500" />
             <span>60s Standup</span>
           </Link>
+
+          {isOwner && (
+            <button
+              onClick={() => {
+                setConfirmOrgName("");
+                setShowDeleteOrgModal(true);
+              }}
+              className="flex-1 md:flex-none px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-500 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Delete this organization project and disband team"
+            >
+              <Trash2 className="w-4 h-4 text-rose-500" />
+              <span>Delete Project</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1128,7 +1246,7 @@ export default function TeamContent() {
             </button>
           )}
 
-          {activeTab === "tasks" && (
+          {activeTab === "tasks" && canCreateTask && (
             <button
               onClick={() => {
                 setShowAssignTaskModal({
@@ -1240,17 +1358,19 @@ export default function TeamContent() {
                 </div>
 
                 {/* TASK ACTION BUTTONS */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <button
-                    onClick={() => {
-                      setShowAssignTaskModal({ deptId: dept._id, deptName: dept.name });
-                      setTaskForm((prev) => ({ ...prev, departmentId: dept._id }));
-                    }}
-                    className="py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Route Work</span>
-                  </button>
+                <div className={`grid ${canCreateTask ? "grid-cols-2" : "grid-cols-1"} gap-2 pt-1`}>
+                  {canCreateTask && (
+                    <button
+                      onClick={() => {
+                        setShowAssignTaskModal({ deptId: dept._id, deptName: dept.name });
+                        setTaskForm((prev) => ({ ...prev, departmentId: dept._id }));
+                      }}
+                      className="py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Route Work</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
@@ -1548,6 +1668,27 @@ export default function TeamContent() {
                         <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
                         <span>Details & Activity</span>
                       </button>
+
+                      {/* DELETE TASK BUTTON */}
+                      {(() => {
+                        const canDeleteTask =
+                          isOwnerOrAdmin ||
+                          isTargetDeptLead ||
+                          t.createdBy?._id === currentUserId ||
+                          (t.createdBy as any) === currentUserId;
+
+                        if (!canDeleteTask) return null;
+
+                        return (
+                          <button
+                            onClick={() => setShowDeleteTaskModal(t)}
+                            className="p-2 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                            title="Delete Task"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -1680,34 +1821,52 @@ export default function TeamContent() {
                             </button>
                           )}
 
-                          {/* ADMIN CONTROLS: EDIT ROLE / DEPT */}
-                          {isOwnerOrAdmin && member.role !== "owner" && (
-                            <button
-                              onClick={() => {
-                                setShowEditMemberModal(member);
-                                setEditMemberForm({
-                                  role: member.role as any,
-                                  departmentId: member.department?._id || "",
-                                  jobTitle: member.jobTitle || "",
-                                });
-                              }}
-                              className="p-1.5 rounded-lg text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition-colors cursor-pointer"
-                              title="Edit Member Privileges"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          {(() => {
+                            const isMemberOwner =
+                              member.role === "owner" ||
+                              member.user?._id === currentOrg?.ownerId ||
+                              (currentOrg?.ownerId as any)?._id === member.user?._id;
+                            const isSelf = member.user?._id === currentUserId;
+                            const canEditMember = isOwnerOrAdmin && !isMemberOwner;
+                            const canRemoveMember =
+                              isOwnerOrAdmin &&
+                              !isMemberOwner &&
+                              !isSelf &&
+                              (isOwner || member.role !== "admin");
 
-                          {/* ADMIN CONTROLS: REMOVE MEMBER */}
-                          {isOwnerOrAdmin && member.role !== "owner" && (
-                            <button
-                              onClick={() => handleRemoveMember(member._id)}
-                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                              title="Remove member"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                            return (
+                              <>
+                                {/* ADMIN CONTROLS: EDIT ROLE / DEPT */}
+                                {canEditMember && (
+                                  <button
+                                    onClick={() => {
+                                      setShowEditMemberModal(member);
+                                      setEditMemberForm({
+                                        role: member.role as any,
+                                        departmentId: member.department?._id || "",
+                                        jobTitle: member.jobTitle || "",
+                                      });
+                                    }}
+                                    className="p-1.5 rounded-lg text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition-colors cursor-pointer"
+                                    title="Edit Member Privileges"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                                {/* ADMIN CONTROLS: REMOVE MEMBER (MODAL) */}
+                                {canRemoveMember && (
+                                  <button
+                                    onClick={() => setShowRemoveMemberModal(member)}
+                                    className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                    title="Remove member from team"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </td>
                     </tr>
@@ -1755,7 +1914,10 @@ export default function TeamContent() {
                     className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
                   >
                     <option value="">-- Choose Department --</option>
-                    {orgDetails?.departments.map((d) => (
+                    {((orgDetails?.allDepartments && orgDetails.allDepartments.length > 0)
+                      ? orgDetails.allDepartments
+                      : (orgDetails?.departments || [])
+                    ).map((d) => (
                       <option key={d._id} value={d._id}>
                         {d.name} ({d.code})
                       </option>
@@ -1765,31 +1927,70 @@ export default function TeamContent() {
 
                 <div>
                   <label className="block text-xs font-bold text-(--color-text) mb-1">Assignee Member</label>
-                  <select
-                    value={taskForm.assignedTo}
-                    onChange={(e) => setTaskForm({ ...taskForm, assignedTo: e.target.value })}
-                    className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
-                  >
-                    <option value="">📥 Unassigned (Department Intake Queue)</option>
-                    {orgDetails?.members
-                      .filter((m) => m.user._id && m.status === "active")
-                      .filter((m) =>
-                        taskForm.departmentId
-                          ? m.department?._id === taskForm.departmentId || !m.department
-                          : true
-                      )
-                      .map((m) => {
-                        const mw = memberWorkloads.find((w) => w.userId === m.user._id);
-                        return (
-                          <option key={m._id} value={m.user._id}>
-                            {m.user.name} ({m.jobTitle}) - {mw?.activeTasks || 0} active
-                          </option>
-                        );
-                      })}
-                  </select>
-                  <p className="text-[10px] text-(--color-desc) mt-0.5">
-                    Leave unassigned if you want the Department Lead to delegate it.
-                  </p>
+                  {(() => {
+                    const isCallerOwnDept =
+                      isOwnerOrAdmin ||
+                      orgDetails?.myDepartmentId === taskForm.departmentId ||
+                      orgDetails?.departments?.some(
+                        (d) =>
+                          d._id === taskForm.departmentId &&
+                          ((d.leadId as any)?._id === currentUserId || d.leadId === currentUserId)
+                      );
+                    const isRoutingCrossDept = !isOwnerOrAdmin && !isCallerOwnDept;
+
+                    if (isRoutingCrossDept) {
+                      return (
+                        <div>
+                          <input
+                            type="text"
+                            readOnly
+                            value="📥 Target Dept Intake Queue (Lead Delegate)"
+                            className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-amber-500 font-semibold cursor-not-allowed"
+                          />
+                          <p className="text-[10px] text-amber-500/90 mt-0.5">
+                            Cross-department work routes directly to their intake queue for their Lead to triage.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div>
+                        <select
+                          value={taskForm.assignedTo}
+                          onChange={(e) => setTaskForm({ ...taskForm, assignedTo: e.target.value })}
+                          className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
+                        >
+                          <option value="">📥 Unassigned (Department Intake Queue)</option>
+                          {orgDetails?.members
+                            .filter((m) => m.user._id && m.status === "active")
+                            .filter((m) =>
+                              taskForm.departmentId
+                                ? m.department?._id === taskForm.departmentId || !m.department
+                                : true
+                            )
+                            .filter((m) => {
+                              // If Owner or Admin, cannot assign to self
+                              if (isOwnerOrAdmin && m.user._id === currentUserId) return false;
+                              return true;
+                            })
+                            .map((m) => {
+                              const mw = memberWorkloads.find((w) => w.userId === m.user._id);
+                              return (
+                                <option key={m._id} value={m.user._id}>
+                                  {m.user.name} ({m.jobTitle}) - {mw?.activeTasks || 0} active
+                                </option>
+                              );
+                            })}
+                        </select>
+                        <p className="text-[10px] text-(--color-desc) mt-0.5">
+                          {isOwnerOrAdmin
+                            ? "Assign to a team member or leave in intake for the Lead."
+                            : "Assign to a member of your department or to yourself."}
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1975,13 +2176,26 @@ export default function TeamContent() {
                   className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
                 >
                   <option value="">-- Choose Blocking Department --</option>
-                  {orgDetails?.departments
-                    .filter((d) => d._id !== showBlockerModal.departmentId?._id)
-                    .map((d) => (
+                  {(() => {
+                    const allDepts =
+                      orgDetails?.allDepartments && orgDetails.allDepartments.length > 0
+                        ? orgDetails.allDepartments
+                        : orgDetails?.departments || [];
+
+                    const taskDeptId =
+                      typeof showBlockerModal.departmentId === "object"
+                        ? showBlockerModal.departmentId?._id
+                        : showBlockerModal.departmentId;
+
+                    const otherDepts = allDepts.filter((d) => d._id !== taskDeptId);
+                    const listToDisplay = otherDepts.length > 0 ? otherDepts : allDepts;
+
+                    return listToDisplay.map((d) => (
                       <option key={d._id} value={d._id}>
-                        {d.name} ({d.code})
+                        {d.name} ({d.code}) {d._id === taskDeptId ? "— Internal / Team Bottleneck" : ""}
                       </option>
-                    ))}
+                    ));
+                  })()}
                 </select>
               </div>
 
@@ -2388,7 +2602,10 @@ export default function TeamContent() {
                   className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
                 >
                   <option value="">-- General / Unassigned --</option>
-                  {orgDetails?.departments.map((d) => (
+                  {((orgDetails?.allDepartments && orgDetails.allDepartments.length > 0)
+                    ? orgDetails.allDepartments
+                    : (orgDetails?.departments || [])
+                  ).map((d) => (
                     <option key={d._id} value={d._id}>
                       {d.name} ({d.code})
                     </option>
@@ -2474,7 +2691,10 @@ export default function TeamContent() {
                   className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
                 >
                   <option value="">-- General / Unassigned --</option>
-                  {orgDetails?.departments.map((d) => (
+                  {((orgDetails?.allDepartments && orgDetails.allDepartments.length > 0)
+                    ? orgDetails.allDepartments
+                    : (orgDetails?.departments || [])
+                  ).map((d) => (
                     <option key={d._id} value={d._id}>
                       {d.name} ({d.code})
                     </option>
@@ -2509,6 +2729,355 @@ export default function TeamContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 9: REMOVE MEMBER CONFIRMATION MODAL */}
+      {showRemoveMemberModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-(--card-bg) border border-rose-500/30 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0 border border-rose-500/20">
+                <UserMinus className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-(--color-text)">
+                  Remove Member from Team
+                </h3>
+                <p className="text-xs text-(--color-desc) mt-0.5">
+                  This user will be unlinked from the {currentOrg?.name || "organization"} workspace.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-2.5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-linear-to-tr from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs shrink-0 overflow-hidden">
+                  {showRemoveMemberModal.user.profileImage ? (
+                    <img
+                      src={showRemoveMemberModal.user.profileImage}
+                      alt={showRemoveMemberModal.user.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    showRemoveMemberModal.user.name?.substring(0, 2).toUpperCase() || "TM"
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-bold text-(--color-text) truncate">
+                    {showRemoveMemberModal.user.name}
+                  </h4>
+                  <p className="text-xs text-(--color-desc) truncate">
+                    {showRemoveMemberModal.user.email}
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-(--color-border) flex items-center justify-between text-xs">
+                <span className="text-(--color-desc)">Department:</span>
+                <span className="font-semibold text-(--color-text)">
+                  {showRemoveMemberModal.department?.name || "General Team"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-(--color-desc)">Role:</span>
+                <span className="font-semibold text-(--color-text) capitalize">
+                  {showRemoveMemberModal.role}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <p className="text-[11px] leading-relaxed">
+                Any active tasks assigned to this member will be unassigned and kept in the department intake queue so that no ongoing project work is lost.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setShowRemoveMemberModal(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleRemoveMemberConfirm}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirm & Remove</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 10: DELETE ORGANIZATION / PROJECT CONFIRMATION MODAL */}
+      {showDeleteOrgModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-(--card-bg) border border-rose-500/30 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-500 flex items-center justify-center shrink-0 border border-rose-500/30">
+                <AlertOctagon className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-black text-(--color-text)">
+                    Delete Organization Project
+                  </h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-500 border border-rose-500/30 uppercase">
+                    Permanent
+                  </span>
+                </div>
+                <p className="text-xs text-(--color-desc) mt-0.5">
+                  Disband this workspace and delete all project assets.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-2.5 text-xs text-rose-400">
+              <p className="font-bold flex items-center gap-1.5 text-rose-500">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                This will permanently delete and cascade across:
+              </p>
+              <ul className="list-disc pl-5 space-y-1 text-[11px] text-(--color-text)">
+                <li>
+                  <b>All {orgDetails?.members?.length || 0} members</b> will be completely unlinked and removed from this project workspace.
+                </li>
+                <li>
+                  <b>All {orgDetails?.departments?.length || 0} departments</b> will be permanently deleted.
+                </li>
+                <li>
+                  <b>All {departmentTasks?.length || 0} department tasks</b>, handshakes, and proofs will be wiped.
+                </li>
+                <li>
+                  All support queries, tickets, team chats, and standups will be removed.
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-(--color-text)">
+                To confirm, type <span className="font-mono text-indigo-400 select-all font-bold">"{currentOrg?.name}"</span> below:
+              </label>
+              <input
+                type="text"
+                value={confirmOrgName}
+                onChange={(e) => setConfirmOrgName(e.target.value)}
+                placeholder={currentOrg?.name}
+                className="w-full px-4 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-sm text-(--color-text) focus:outline-hidden focus:ring-2 focus:ring-rose-500 font-medium"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => {
+                  setShowDeleteOrgModal(false);
+                  setConfirmOrgName("");
+                }}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  submitting ||
+                  confirmOrgName.trim().toLowerCase() !== (currentOrg?.name || "").trim().toLowerCase()
+                }
+                onClick={handleDeleteOrganization}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting Project...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Permanently Delete Project</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 11: MEMBER INVITED CONFIRMATION & MAGIC LINK MODAL */}
+      {showInviteSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-(--card-bg) border border-emerald-500/30 rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-(--color-text)">
+                  Member Added & Invitation Dispatched
+                </h3>
+                <p className="text-xs text-(--color-desc) mt-0.5">
+                  Notification email dispatched & magic invite link generated.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Invited Email:</span>
+                <span className="font-bold text-(--color-text)">{showInviteSuccessModal.email}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Role:</span>
+                <span className="font-semibold text-indigo-400 capitalize">{showInviteSuccessModal.role}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Department:</span>
+                <span className="font-semibold text-(--color-text)">
+                  {showInviteSuccessModal.departmentName || "General Team"}
+                </span>
+              </div>
+            </div>
+
+            {showInviteSuccessModal.link && (
+              <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-indigo-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" /> Direct Magic Invite Link:
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={showInviteSuccessModal.link}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-(--card-bg) border border-(--color-border) text-[11px] font-mono text-(--color-text) select-all"
+                  />
+                  <button
+                    onClick={() => {
+                      if (showInviteSuccessModal.link) {
+                        navigator.clipboard.writeText(showInviteSuccessModal.link);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1 shrink-0 cursor-pointer transition-colors"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-(--color-desc)">
+                  Share this link directly or let them join from their in-app invitations banner.
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setShowInviteSuccessModal(null)}
+                className="px-5 py-2.5 rounded-xl bg-(--color-primary) hover:opacity-90 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 12: DELETE DEPARTMENT TASK CONFIRMATION MODAL */}
+      {showDeleteTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-(--card-bg) border border-rose-500/30 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0 border border-rose-500/20">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-(--color-text)">
+                  Delete Department Task
+                </h3>
+                <p className="text-xs text-(--color-desc) mt-0.5">
+                  Are you sure you want to permanently delete this task?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-(--hover-card-bg) border border-(--color-border) space-y-2 text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-(--color-desc) uppercase">Task Title:</span>
+                <p className="font-bold text-(--color-text) text-sm mt-0.5">{showDeleteTaskModal.title}</p>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-(--color-border)">
+                <span className="text-(--color-desc)">Department:</span>
+                <span className="font-semibold text-(--color-text)">
+                  {showDeleteTaskModal.departmentId?.name || "General"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Assigned To:</span>
+                <span className="font-semibold text-(--color-text)">
+                  {showDeleteTaskModal.assignedTo?.name || "Unassigned (Intake)"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-(--color-desc)">Status:</span>
+                <span className="font-bold uppercase text-indigo-400">
+                  {showDeleteTaskModal.status}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-(--color-desc) leading-relaxed">
+              This task and its comments will be permanently removed. Any tasks depending on this work order will be safely unlocked.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setShowDeleteTaskModal(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-(--color-desc) hover:text-(--color-text) hover:bg-(--hover-card-bg) transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleDeleteTaskConfirm}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Task</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

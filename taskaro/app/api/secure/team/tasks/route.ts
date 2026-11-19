@@ -5,6 +5,7 @@ import {
   getDepartmentTasksService,
   updateDepartmentTaskStatusService,
   delegateDepartmentTaskService,
+  deleteDepartmentTaskService,
 } from "@/server/services/team.service";
 
 // GET /api/secure/team/tasks?orgId=...&departmentId=...
@@ -120,6 +121,30 @@ export async function PATCH(req: Request) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to update department task" },
+      { status: error.status || 500 }
+    );
+  }
+}
+
+// DELETE /api/secure/team/tasks?taskId=...
+export async function DELETE(req: Request) {
+  try {
+    const user = await getAuthUser(req);
+    const { searchParams } = new URL(req.url);
+    const taskId = searchParams.get("taskId");
+
+    if (!taskId) {
+      return NextResponse.json(
+        { error: "taskId is required." },
+        { status: 400 }
+      );
+    }
+
+    const result = await deleteDepartmentTaskService(user._id.toString(), taskId);
+    return NextResponse.json(result, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to delete department task" },
       { status: error.status || 500 }
     );
   }

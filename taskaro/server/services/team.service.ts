@@ -8,6 +8,9 @@ import User from "../models/User";
 import Task from "../models/Task";
 import Notification from "../models/Notification";
 import SubscriptionPlan from "../models/SubscriptionPlan";
+import TeamTicket from "../models/TeamTicket";
+import TeamMessage from "../models/TeamMessage";
+import DailyPulse from "../models/DailyPulse";
 import { sendMailService } from "../utils/mailer";
 
 function generateSlug(name: string): string {
@@ -215,13 +218,31 @@ export async function getOrganizationDetailsService(userId: string, orgId: strin
     .lean();
 
   const myRole = isOwner ? "owner" : (userMembership?.role || "member");
+  const isOwnerOrAdmin = isOwner || myRole === "owner" || myRole === "admin";
+
+  // Visible departments scoping:
+  // If user is Member or Lead: they ONLY see the department they belong to or lead!
+  // If user is Owner or Admin: they see all departments.
+  let visibleDepartments = departments;
+  if (!isOwnerOrAdmin) {
+    visibleDepartments = departments.filter((d: any) => {
+      const isMyDept =
+        userMembership?.departmentId &&
+        d._id.toString() === userMembership.departmentId.toString();
+      const isLead =
+        d.leadId?._id?.toString() === userId || d.leadId?.toString() === userId;
+      return isMyDept || isLead;
+    });
+  }
 
   return {
     success: true,
     organization: org,
     myRole,
-    isOwnerOrAdmin: isOwner || myRole === "owner" || myRole === "admin",
-    departments,
+    isOwnerOrAdmin,
+    myDepartmentId: userMembership?.departmentId || null,
+    departments: visibleDepartments,
+    allDepartments: departments,
     members: members.map((m: any) => ({
       _id: m._id,
       user: m.userId || { name: m.inviteEmail.split("@")[0], email: m.inviteEmail, profileImage: null },
@@ -401,8 +422,10 @@ export async function updateMemberRoleService(
   const member = await OrgMember.findById(memberId);
   if (!member) throw { status: 404, message: "Member record not found" };
 
-  if (member.role === "owner" && !isOwner) {
-    throw { status: 403, message: "Only the organization founder can modify owner roles." };
+  if (member.role === "owner" || member.userId?.toString() === org.ownerId.toString()) {
+    if (data.role) {
+      throw { status: 400, message: "The organization founder / owner role cannot be changed or downgraded." };
+    }
   }
 
   const updateFields: any = {};
@@ -700,22 +723,52 @@ export async function createDepartmentTaskService(
   const targetDept = await Department.findById(data.departmentId).lean();
   if (!targetDept) throw { status: 404, message: "Target department not found" };
 
+  const isLead =
+    callerMembership?.role === "lead" ||
+    targetDept.leadId?.toString() === callerUserId;
+
+  // 1. Team Members cannot create or assign tasks
+  if (!isOwnerOrAdmin && !isLead) {
+    throw {
+      status: 403,
+      message: "Team members cannot assign tasks. Only Department Leads, Admins, or Organization Owners can assign or route tasks.",
+    };
+  }
+
   let assignedToUserId: string | null = data.assignedTo ? data.assignedTo : null;
 
-  // Inter-Department Assignment Guard:
-  // If assigning to a specific member, caller MUST be:
-  // 1. Owner or Admin, OR
-  // 2. The Lead of that TARGET department, OR
-  // 3. Assigning to themselves within their own department
-  if (assignedToUserId && !isOwnerOrAdmin) {
-    const isTargetDeptLead = targetDept.leadId?.toString() === callerUserId;
-    const isSelfAssignmentInOwnDept =
-      assignedToUserId === callerUserId &&
-      callerMembership?.departmentId?.toString() === data.departmentId;
+  // 2. Organization Owners and Admins cannot assign tasks to themselves (they delegate to members)
+  if (isOwnerOrAdmin && assignedToUserId === callerUserId) {
+    throw {
+      status: 400,
+      message: "Admins and Owners cannot assign tasks to themselves. Assign to a team member or leave in intake.",
+    };
+  }
 
-    if (!isTargetDeptLead && !isSelfAssignmentInOwnDept) {
-      // Caller cannot arbitrarily bypass the target department lead.
-      // Task is safely routed to the target department's intake queue!
+  // 3. Department Lead Assignment Rules:
+  // - If target is their own department: can assign to themselves or their own department's active members
+  // - If target is another department: MUST route to unassigned intake queue so that department's lead can delegate
+  if (!isOwnerOrAdmin && isLead) {
+    const isCallerInTargetDept =
+      callerMembership?.departmentId?.toString() === data.departmentId ||
+      targetDept.leadId?.toString() === callerUserId;
+
+    if (isCallerInTargetDept) {
+      if (assignedToUserId && assignedToUserId !== callerUserId) {
+        const memberInDept = await OrgMember.findOne({
+          orgId: data.orgId,
+          userId: new mongoose.Types.ObjectId(assignedToUserId),
+          departmentId: new mongoose.Types.ObjectId(data.departmentId),
+        });
+        if (!memberInDept) {
+          throw {
+            status: 403,
+            message: "Department Leads can only assign tasks to members of their own department.",
+          };
+        }
+      }
+    } else {
+      // Routing work order to another department -> forced to unassigned intake queue!
       assignedToUserId = null;
     }
   }
@@ -828,6 +881,14 @@ export async function delegateDepartmentTaskService(
     };
   }
 
+  // Admins & Owners cannot assign to themselves
+  if (isOwnerOrAdmin && assignedToUserId === callerUserId) {
+    throw {
+      status: 400,
+      message: "Admins and Owners cannot assign tasks to themselves. Delegate to a department team member.",
+    };
+  }
+
   // Validate assignee is in this org
   const assigneeMember = await OrgMember.findOne({
     orgId: task.orgId,
@@ -838,8 +899,28 @@ export async function delegateDepartmentTaskService(
     throw { status: 400, message: "Selected user is not an active member of this organization." };
   }
 
+  // Dept Leads can only delegate to members of their own department
+  if (!isOwnerOrAdmin && isDeptLead && assignedToUserId !== callerUserId) {
+    if (assigneeMember.departmentId?.toString() !== dept._id.toString()) {
+      throw {
+        status: 403,
+        message: "Department Leads can only delegate tasks to members of their own department.",
+      };
+    }
+  }
+
   task.assignedTo = new mongoose.Types.ObjectId(assignedToUserId);
   await task.save();
+
+  // If linked to a ticket, update the ticket's assigned member
+  if (task.linkedTicketId) {
+    await TeamTicket.findByIdAndUpdate(task.linkedTicketId, {
+      $set: {
+        assignedMemberId: new mongoose.Types.ObjectId(assignedToUserId),
+        status: "in_progress",
+      },
+    });
+  }
 
   // Notify assignee
   try {
@@ -881,7 +962,26 @@ export async function getDepartmentTasksService(
     isTrashed: false,
   };
 
-  if (departmentId && departmentId !== "all") {
+  const org = await Organization.findById(orgId).lean();
+  if (!org) throw { status: 404, message: "Organization not found" };
+
+  const callerMembership = await OrgMember.findOne({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    userId: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const isOwner = org.ownerId.toString() === userId;
+  const myRole = isOwner ? "owner" : (callerMembership?.role || "member");
+  const isOwnerOrAdmin = isOwner || myRole === "owner" || myRole === "admin";
+
+  if (!isOwnerOrAdmin) {
+    // Member or Lead: scope only to their assigned department!
+    if (callerMembership?.departmentId) {
+      query.departmentId = new mongoose.Types.ObjectId(callerMembership.departmentId);
+    } else {
+      query.assignedTo = new mongoose.Types.ObjectId(userId);
+    }
+  } else if (departmentId && departmentId !== "all") {
     query.departmentId = new mongoose.Types.ObjectId(departmentId);
   }
 
@@ -978,6 +1078,32 @@ export async function updateDepartmentTaskStatusService(
     if (data.proofUrl) task.proofUrl = data.proofUrl.trim();
     if (data.completionNotes) task.completionNotes = data.completionNotes.trim();
 
+    // 🔗 Auto-resolve linked ticket if this task originated from a query / ticket!
+    if (task.linkedTicketId) {
+      await TeamTicket.findByIdAndUpdate(task.linkedTicketId, {
+        $set: {
+          status: "resolved",
+          resolvedAt: new Date(),
+          resolvedBy: new mongoose.Types.ObjectId(userId),
+          resolutionSummary:
+            data.completionNotes ||
+            `Resolved automatically upon completion of task '${task.title}'. Deliverable proof: ${data.proofUrl || "Attached to task."}`,
+        },
+      });
+
+      try {
+        const linkedTicket = await TeamTicket.findById(task.linkedTicketId).lean();
+        if (linkedTicket?.createdBy) {
+          await Notification.create({
+            userId: linkedTicket.createdBy,
+            title: "Query / Ticket Resolved! ✅",
+            message: `Ticket #${linkedTicket.ticketCode} (${linkedTicket.title}) was resolved with proof upon completion of task '${task.title}'.`,
+            link: "/dashboard/team/tickets",
+          });
+        }
+      } catch {}
+    }
+
     // 🔗 Cross-Department Dependency Handshake: Unlock any tasks waiting on this task!
     const unlocked = await Task.find({ dependencyTaskId: task._id, isLocked: true });
     if (unlocked.length > 0) {
@@ -1002,6 +1128,15 @@ export async function updateDepartmentTaskStatusService(
   } else {
     // If reverted away from done (e.g. back to inprogress or todo)
     task.completedAt = null;
+    if (task.linkedTicketId && oldStatus === "done") {
+      await TeamTicket.findByIdAndUpdate(task.linkedTicketId, {
+        $set: {
+          status: "in_progress",
+          resolvedAt: null,
+          resolvedBy: null,
+        },
+      });
+    }
   }
 
   if (data.status === "blocked") {
@@ -1107,15 +1242,54 @@ export async function removeOrgMemberService(
     userId: new mongoose.Types.ObjectId(userId),
   }).lean();
 
-  if (org.ownerId.toString() !== userId && caller?.role !== "owner") {
-    throw { status: 403, message: "Only organization owners can remove members." };
+  const isOwner = org.ownerId.toString() === userId || caller?.role === "owner";
+  const isAdmin = caller?.role === "admin";
+
+  if (!isOwner && !isAdmin) {
+    throw { status: 403, message: "Only organization owners and admins can remove members." };
   }
 
   const member = await OrgMember.findById(memberId);
   if (!member) throw { status: 404, message: "Member record not found" };
 
-  if (member.role === "owner") {
-    throw { status: 400, message: "Cannot remove the Organization Owner." };
+  // Rule 1: The Owner can NEVER be removed from the team directory
+  if (
+    member.role === "owner" ||
+    member.userId?.toString() === org.ownerId.toString()
+  ) {
+    throw {
+      status: 400,
+      message: "The Organization Owner cannot be removed from the team directory. To disband the team, delete the organization project.",
+    };
+  }
+
+  // Rule 2: Cannot remove yourself from directory
+  if (member.userId?.toString() === userId) {
+    throw {
+      status: 400,
+      message: "You cannot remove yourself from the team directory. To leave or disband, the owner can delete the organization project.",
+    };
+  }
+
+  // Rule 3: Admin cannot remove other Admins or Owner
+  if (!isOwner && (member.role === "admin" || member.role === "owner")) {
+    throw {
+      status: 403,
+      message: "Admins cannot remove other Admins or the Owner.",
+    };
+  }
+
+  // Clean up any lead role or task assignments for this member
+  if (member.userId) {
+    await Department.updateMany(
+      { orgId: org._id, leadId: member.userId },
+      { $set: { leadId: null } }
+    );
+    // Unassign tasks assigned to this user so they safely enter the department intake queue
+    await Task.updateMany(
+      { orgId: org._id, assignedTo: member.userId },
+      { $set: { assignedTo: null } }
+    );
   }
 
   await OrgMember.findByIdAndDelete(memberId);
@@ -1123,5 +1297,100 @@ export async function removeOrgMemberService(
   return {
     success: true,
     message: "Member removed from organization.",
+  };
+}
+
+/**
+ * DELETE AN ENTIRE ORGANIZATION / PROJECT (CASCADE)
+ * Only the Organization Owner can perform this action.
+ * Cascades across all members, departments, tasks, tickets, messages, and standup pulses.
+ */
+export async function deleteOrganizationService(userId: string, orgId: string) {
+  await connectToDatabase();
+
+  const org = await Organization.findById(orgId);
+  if (!org) throw { status: 404, message: "Organization not found" };
+
+  if (org.ownerId.toString() !== userId) {
+    throw { status: 403, message: "Only the organization founder / owner can delete this project." };
+  }
+
+  const orgObjectId = new mongoose.Types.ObjectId(orgId);
+
+  // 1. Remove all members from this project
+  await OrgMember.deleteMany({ orgId: orgObjectId });
+
+  // 2. Remove all departments
+  await Department.deleteMany({ orgId: orgObjectId });
+
+  // 3. Remove all department tasks
+  await Task.deleteMany({ orgId: orgObjectId });
+
+  // 4. Remove all tickets & queries
+  await TeamTicket.deleteMany({ orgId: orgObjectId });
+
+  // 5. Remove all team messages
+  await TeamMessage.deleteMany({ orgId: orgObjectId });
+
+  // 6. Remove all daily standup pulses
+  await DailyPulse.deleteMany({ orgId: orgObjectId });
+
+  // 7. Finally delete the organization record
+  await Organization.findByIdAndDelete(orgId);
+
+  return {
+    success: true,
+    message: "Organization project and all associated workspaces, members, and data have been permanently deleted.",
+  };
+}
+
+/**
+ * DELETE DEPARTMENT TASK
+ * Allowed for Owner, Admin, Department Lead of that task's department, or the task creator.
+ */
+export async function deleteDepartmentTaskService(userId: string, taskId: string) {
+  await connectToDatabase();
+
+  const task = await Task.findById(taskId);
+  if (!task) throw { status: 404, message: "Task not found" };
+
+  const org = await Organization.findById(task.orgId).lean();
+  const caller = await OrgMember.findOne({
+    orgId: task.orgId,
+    userId: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const dept = await Department.findById(task.departmentId).lean();
+
+  const isOwner = org?.ownerId?.toString() === userId || caller?.role === "owner";
+  const isAdmin = caller?.role === "admin";
+  const isDeptLead = dept?.leadId?.toString() === userId;
+  const isCreator = task.createdBy?.toString() === userId;
+
+  if (!isOwner && !isAdmin && !isDeptLead && !isCreator) {
+    throw {
+      status: 403,
+      message: "You do not have permission to delete this task. Only Admins, Department Leads, or the task creator can delete it.",
+    };
+  }
+
+  // If this task was linked to a ticket, unlink it
+  if (task.linkedTicketId) {
+    await TeamTicket.findByIdAndUpdate(task.linkedTicketId, {
+      $set: { convertedTaskId: null },
+    });
+  }
+
+  // Unlock any tasks waiting on this deleted task so dependencies don't get stuck forever
+  await Task.updateMany(
+    { dependencyTaskId: task._id },
+    { $set: { isLocked: false, dependencyTaskId: null } }
+  );
+
+  await Task.findByIdAndDelete(taskId);
+
+  return {
+    success: true,
+    message: `Task '${task.title}' was deleted.`,
   };
 }

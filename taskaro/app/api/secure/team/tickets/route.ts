@@ -5,6 +5,7 @@ import {
   listTicketsService,
   updateTicketService,
   checkAndEscalateBreachedTicketsService,
+  deleteTicketService,
 } from "@/server/services/ticket.service";
 
 export async function GET(req: Request) {
@@ -93,6 +94,27 @@ export async function PATCH(req: Request) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to update ticket" },
+      { status: error.status || 500 }
+    );
+  }
+}
+
+// DELETE /api/secure/team/tickets?ticketId=...
+export async function DELETE(req: Request) {
+  try {
+    const user = await getAuthUser(req);
+    const { searchParams } = new URL(req.url);
+    const ticketId = searchParams.get("ticketId");
+
+    if (!ticketId) {
+      return NextResponse.json({ error: "ticketId is required." }, { status: 400 });
+    }
+
+    const result = await deleteTicketService(user._id.toString(), ticketId);
+    return NextResponse.json(result, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to delete ticket" },
       { status: error.status || 500 }
     );
   }
