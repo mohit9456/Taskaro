@@ -61,8 +61,10 @@ export async function POST(req: Request) {
       dueDate: body.dueDate,
       estimatedHours: body.estimatedHours,
       assignedTo: body.assignedTo || null, // null if routing to department intake queue
-      dependencyTaskId: body.dependencyTaskId,
-      linkedTicketId: body.linkedTicketId,
+      dependencyTaskId: body.dependencyTaskId || null,
+      blockedByDeptId: body.blockedByDeptId || null,
+      blockerReason: body.blockerReason || "",
+      linkedTicketId: body.linkedTicketId || null,
     });
 
     return NextResponse.json(result, { status: 201 });

@@ -261,6 +261,28 @@ export async function convertTicketToTaskService(
 
   if (!ticket) throw { status: 404, message: "Ticket not found" };
 
+  // Validate assignee is NOT Owner or Admin
+  if (data?.assignedTo) {
+    const Organization = (await import("../models/Organization")).default;
+    const OrgMember = (await import("../models/OrgMember")).default;
+    const org = await Organization.findById(ticket.orgId).lean();
+    const assignedMember = await OrgMember.findOne({
+      orgId: ticket.orgId,
+      userId: new mongoose.Types.ObjectId(data.assignedTo),
+    }).lean();
+
+    if (
+      assignedMember?.role === "owner" ||
+      assignedMember?.role === "admin" ||
+      org?.ownerId?.toString() === data.assignedTo
+    ) {
+      throw {
+        status: 400,
+        message: "Cannot assign queries/tasks to Organization Owner or Admins. Must be assigned to department team members.",
+      };
+    }
+  }
+
   const Task = (await import("../models/Task")).default;
   const Notification = (await import("../models/Notification")).default;
 
@@ -348,6 +370,14 @@ export async function deleteTicketService(userId: string, ticketId: string) {
     throw {
       status: 403,
       message: "You do not have permission to delete this ticket. Only the creator, Admins, or Target Department Lead can delete it.",
+    };
+  }
+
+  // Actively in-progress queries cannot be deleted; they must be completed & resolved!
+  if (ticket.status === "in_progress" || ticket.convertedTaskId) {
+    throw {
+      status: 400,
+      message: "This query is actively in progress with assigned work orders. In-progress queries cannot be deleted; they must be completed and marked resolved.",
     };
   }
 

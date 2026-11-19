@@ -380,7 +380,7 @@ export async function updateDepartmentLeadService(
       message: `You are now the lead for the ${dept.name} department in ${org.name}.`,
       link: "/dashboard/team",
     });
-  } catch {}
+  } catch { }
 
   return {
     success: true,
@@ -699,6 +699,8 @@ export async function createDepartmentTaskService(
     estimatedHours?: number;
     assignedTo?: string | null;
     dependencyTaskId?: string;
+    blockedByDeptId?: string | null;
+    blockerReason?: string;
     linkedTicketId?: string;
   }
 ) {
@@ -737,6 +739,25 @@ export async function createDepartmentTaskService(
 
   let assignedToUserId: string | null = data.assignedTo ? data.assignedTo : null;
 
+  // Validate assignee is NOT the Organization Owner or Admins
+  if (assignedToUserId) {
+    const targetMember = await OrgMember.findOne({
+      orgId: data.orgId,
+      userId: new mongoose.Types.ObjectId(assignedToUserId),
+    }).lean();
+
+    if (
+      targetMember?.role === "owner" ||
+      targetMember?.role === "admin" ||
+      org.ownerId.toString() === assignedToUserId
+    ) {
+      throw {
+        status: 400,
+        message: "Cannot assign tasks to Organization Owner or Admins. Tasks must be assigned to team members.",
+      };
+    }
+  }
+
   // 2. Organization Owners and Admins cannot assign tasks to themselves (they delegate to members)
   if (isOwnerOrAdmin && assignedToUserId === callerUserId) {
     throw {
@@ -774,6 +795,7 @@ export async function createDepartmentTaskService(
   }
 
   // Determine if task starts in locked state
+  const isBlockedByDept = Boolean(data.blockedByDeptId);
   let isLocked = false;
   if (data.dependencyTaskId) {
     const depTask = await Task.findById(data.dependencyTaskId).lean();
@@ -781,13 +803,16 @@ export async function createDepartmentTaskService(
       isLocked = true;
     }
   }
+  if (isBlockedByDept) {
+    isLocked = true;
+  }
 
   const callerDeptId = callerMembership?.departmentId || null;
 
   const task = await Task.create({
     title: data.title.trim(),
     description: data.description?.trim() || "",
-    status: "todo",
+    status: isBlockedByDept ? "blocked" : "todo",
     priority: data.priority || "medium",
     dueDate: data.dueDate ? new Date(data.dueDate) : null,
     assignedTo: assignedToUserId ? new mongoose.Types.ObjectId(assignedToUserId) : null,
@@ -800,9 +825,26 @@ export async function createDepartmentTaskService(
     requestedBy: new mongoose.Types.ObjectId(callerUserId),
     estimatedHours: data.estimatedHours || 2,
     dependencyTaskId: data.dependencyTaskId ? new mongoose.Types.ObjectId(data.dependencyTaskId) : null,
+    blockedByDeptId: data.blockedByDeptId ? new mongoose.Types.ObjectId(data.blockedByDeptId) : null,
+    blockerReason: data.blockerReason?.trim() || (isBlockedByDept ? "Waiting on deliverables from department" : ""),
     linkedTicketId: data.linkedTicketId ? new mongoose.Types.ObjectId(data.linkedTicketId) : null,
     isLocked,
   });
+
+  // Notify blocking department lead if created as blocked
+  if (data.blockedByDeptId) {
+    const blockingDept = await Department.findById(data.blockedByDeptId).lean();
+    if (blockingDept?.leadId) {
+      try {
+        await Notification.create({
+          userId: blockingDept.leadId,
+          title: "🚨 Work Blocked Waiting on Your Department",
+          message: `Task '${task.title}' was created and is blocked waiting on ${blockingDept.name}. Blocker: ${data.blockerReason || "Department dependency"}`,
+          link: "/dashboard/team",
+        });
+      } catch {}
+    }
+  }
 
   // Notifications
   if (assignedToUserId) {
@@ -813,7 +855,7 @@ export async function createDepartmentTaskService(
         message: `You were assigned: '${task.title}'${isLocked ? " (Locked pending dependency)" : ""}`,
         link: "/dashboard/team",
       });
-    } catch {}
+    } catch { }
   } else {
     // Notify target department lead that incoming work has arrived in their intake
     if (targetDept.leadId) {
@@ -824,7 +866,7 @@ export async function createDepartmentTaskService(
           message: `A new task '${task.title}' was assigned to ${targetDept.name} for triage and delegation.`,
           link: "/dashboard/team",
         });
-      } catch {}
+      } catch { }
     }
   }
 
@@ -899,6 +941,18 @@ export async function delegateDepartmentTaskService(
     throw { status: 400, message: "Selected user is not an active member of this organization." };
   }
 
+  // Validate assignee is NOT Owner or Admin
+  if (
+    assigneeMember.role === "owner" ||
+    assigneeMember.role === "admin" ||
+    org?.ownerId?.toString() === assignedToUserId
+  ) {
+    throw {
+      status: 400,
+      message: "Cannot delegate tasks to Organization Owner or Admins. Tasks must be delegated to department team members.",
+    };
+  }
+
   // Dept Leads can only delegate to members of their own department
   if (!isOwnerOrAdmin && isDeptLead && assignedToUserId !== callerUserId) {
     if (assigneeMember.departmentId?.toString() !== dept._id.toString()) {
@@ -930,7 +984,7 @@ export async function delegateDepartmentTaskService(
       message: `Your Department Lead delegated: '${task.title}' to you.`,
       link: "/dashboard/team",
     });
-  } catch {}
+  } catch { }
 
   const populated = await Task.findById(taskId)
     .populate("assignedTo", "name email profileImage")
@@ -974,20 +1028,23 @@ export async function getDepartmentTasksService(
   const myRole = isOwner ? "owner" : (callerMembership?.role || "member");
   const isOwnerOrAdmin = isOwner || myRole === "owner" || myRole === "admin";
 
-  if (!isOwnerOrAdmin) {
-    // Member or Lead: scope only to their assigned department!
-    if (callerMembership?.departmentId) {
-      query.departmentId = new mongoose.Types.ObjectId(callerMembership.departmentId);
-    } else {
-      query.assignedTo = new mongoose.Types.ObjectId(userId);
-    }
-  } else if (departmentId && departmentId !== "all") {
-    query.departmentId = new mongoose.Types.ObjectId(departmentId);
+  const deptScopeId = !isOwnerOrAdmin
+    ? (callerMembership?.departmentId ? callerMembership.departmentId.toString() : null)
+    : (departmentId && departmentId !== "all" ? departmentId : null);
+
+  if (deptScopeId) {
+    query.$or = [
+      { departmentId: new mongoose.Types.ObjectId(deptScopeId) },
+      { blockedByDeptId: new mongoose.Types.ObjectId(deptScopeId), status: "blocked" },
+    ];
+  } else if (!isOwnerOrAdmin) {
+    query.assignedTo = new mongoose.Types.ObjectId(userId);
   }
 
   const rawTasks = await Task.find(query)
     .populate("assignedTo", "name email profileImage role")
     .populate("createdBy", "name email profileImage")
+    .populate("completedBy", "name email profileImage role")
     .populate("departmentId", "name code color icon leadId")
     .populate({ path: "sourceDepartmentId", select: "name code color", strictPopulate: false })
     .populate({ path: "blockedByDeptId", select: "name code color", strictPopulate: false })
@@ -1034,11 +1091,22 @@ export async function getDepartmentTasksService(
   const intakeTasks = rawTasks.filter((t: any) => !t.assignedTo);
   const assignedTasks = rawTasks.filter((t: any) => Boolean(t.assignedTo));
 
+  // Tasks from other departments blocked waiting on this department
+  const currentDeptStr = deptScopeId ? deptScopeId.toString() : null;
+  const incomingBlockedTasks = rawTasks.filter(
+    (t: any) =>
+      currentDeptStr &&
+      t.blockedByDeptId?._id?.toString() === currentDeptStr &&
+      t.departmentId?._id?.toString() !== currentDeptStr &&
+      t.status === "blocked"
+  );
+
   return {
     success: true,
     tasks: rawTasks,
     intakeTasks,
     assignedTasks,
+    incomingBlockedTasks,
     memberWorkloads,
   };
 }
@@ -1063,7 +1131,47 @@ export async function updateDepartmentTaskStatusService(
   const task = await Task.findById(taskId);
   if (!task) throw { status: 404, message: "Task not found" };
 
-  if (task.isLocked && data.status !== "todo" && data.status !== "blocked") {
+  const org = await Organization.findById(task.orgId).lean();
+  const callerMembership = await OrgMember.findOne({
+    orgId: task.orgId,
+    userId: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const dept = await Department.findById(task.departmentId).lean();
+
+  const isOwner = org?.ownerId?.toString() === userId || callerMembership?.role === "owner";
+  const isAdmin = callerMembership?.role === "admin";
+  const isOwnerOrAdmin = isOwner || isAdmin;
+  const isDeptLead =
+    dept?.leadId?.toString() === userId ||
+    (callerMembership?.role === "lead" &&
+      callerMembership?.departmentId?.toString() === task.departmentId?.toString());
+  const isAssignee = task.assignedTo?.toString() === userId;
+  const isBlockingDeptLead =
+    task.blockedByDeptId &&
+    ((callerMembership?.role === "lead" &&
+      callerMembership?.departmentId?.toString() === task.blockedByDeptId.toString()) ||
+      (task.blockedByDeptId as any)?.leadId?.toString() === userId);
+
+  // Strict transition permission: Assignee, Dept Lead, Blocking Dept Lead (to resolve blocker), or Admin/Owner can update status
+  if (!isOwnerOrAdmin && !isDeptLead && !isAssignee && !isBlockingDeptLead) {
+    throw {
+      status: 403,
+      message: "You cannot change the status of this task. Only the assigned member, Department Lead, or Admin can update its progress or mark it done.",
+    };
+  }
+
+  // If a blocking dept lead is unblocking, allow transitioning to todo or inprogress!
+  if (isBlockingDeptLead && !isOwnerOrAdmin && !isDeptLead && !isAssignee) {
+    if (data.status !== "todo" && data.status !== "inprogress") {
+      throw {
+        status: 403,
+        message: "As the blocking department lead, you can unblock this task by moving it to To-Do or In-Progress.",
+      };
+    }
+  }
+
+  if (task.isLocked && !isBlockingDeptLead && data.status !== "todo" && data.status !== "blocked") {
     throw {
       status: 400,
       message: "This task is locked pending dependency completion. Complete the dependent task first.",
@@ -1075,6 +1183,7 @@ export async function updateDepartmentTaskStatusService(
 
   if (data.status === "done") {
     task.completedAt = new Date();
+    task.completedBy = new mongoose.Types.ObjectId(userId);
     if (data.proofUrl) task.proofUrl = data.proofUrl.trim();
     if (data.completionNotes) task.completionNotes = data.completionNotes.trim();
 
@@ -1101,7 +1210,7 @@ export async function updateDepartmentTaskStatusService(
             link: "/dashboard/team/tickets",
           });
         }
-      } catch {}
+      } catch { }
     }
 
     // 🔗 Cross-Department Dependency Handshake: Unlock any tasks waiting on this task!
@@ -1121,7 +1230,7 @@ export async function updateDepartmentTaskStatusService(
               message: `'${task.title}' was completed. Your task '${unl.title}' is now unlocked.`,
               link: "/dashboard/team",
             });
-          } catch {}
+          } catch { }
         }
       }
     }
@@ -1158,13 +1267,25 @@ export async function updateDepartmentTaskStatusService(
             message: `Task '${task.title}' is blocked waiting on ${blockingDept.name}. Blocker: ${data.blockerReason || "Action required"}`,
             link: "/dashboard/team",
           });
-        } catch {}
+        } catch { }
       }
     }
   } else if (oldStatus === "blocked") {
     // Blocker resolved / cleared
     task.blockedByDeptId = null;
     task.blockerReason = "";
+    task.isLocked = false;
+
+    if (task.assignedTo) {
+      try {
+        await Notification.create({
+          userId: task.assignedTo,
+          title: "🎉 Task Unblocked!",
+          message: `Your task '${task.title}' was unblocked and is ready to work on.`,
+          link: "/dashboard/team",
+        });
+      } catch {}
+    }
   }
 
   await task.save();
@@ -1184,8 +1305,8 @@ export async function updateDepartmentTaskStatusService(
       data.status === "done"
         ? "Task marked done & dependent handshakes unlocked!"
         : data.status === "blocked"
-        ? "Task marked as blocked. Department lead notified."
-        : `Task moved to ${data.status.toUpperCase()}.`,
+          ? "Task marked as blocked. Department lead notified."
+          : `Task moved to ${data.status.toUpperCase()}.`,
     task: populated,
   };
 }

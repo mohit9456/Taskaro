@@ -91,6 +91,7 @@ export default function TicketsContent() {
   const [tickets, setTickets] = useState<TicketData[]>([]);
   const [myRole, setMyRole] = useState<string>("member");
   const [isOwnerOrAdmin, setIsOwnerOrAdmin] = useState(false);
+  const [orgOwnerId, setOrgOwnerId] = useState<string | null>(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -144,6 +145,7 @@ export default function TicketsContent() {
           setOrgMembers(detailsData.members || []);
           setMyRole(detailsData.myRole || "member");
           setIsOwnerOrAdmin(Boolean(detailsData.isOwnerOrAdmin));
+          setOrgOwnerId((detailsData.organization?.ownerId as any)?._id || detailsData.organization?.ownerId || null);
 
           if (depts.length >= 2) {
             setRaiseForm((prev) => ({
@@ -647,11 +649,13 @@ export default function TicketsContent() {
                   {(() => {
                     const isTargetDeptLead = (t.targetDeptId as any)?.leadId === currentUserId;
                     const canAssignTicket = isOwnerOrAdmin || isTargetDeptLead;
+                    const isActivelyInProgress = t.status === "in_progress" || Boolean(t.convertedTaskId);
                     const canDeleteTicket =
-                      isOwnerOrAdmin ||
-                      isTargetDeptLead ||
-                      t.createdBy?._id === currentUserId ||
-                      (t.createdBy as any) === currentUserId;
+                      !isActivelyInProgress &&
+                      (isOwnerOrAdmin ||
+                        isTargetDeptLead ||
+                        t.createdBy?._id === currentUserId ||
+                        (t.createdBy as any) === currentUserId);
 
                     return (
                       <>
@@ -935,12 +939,23 @@ export default function TicketsContent() {
                 >
                   <option value="">📥 Unassigned (Department Intake Backlog)</option>
                   {orgMembers
-                    .filter(
-                      (m) =>
-                        m.user?._id &&
-                        m.status === "active" &&
-                        (!m.department || m.department._id === convertModalTicket.targetDeptId?._id)
-                    )
+                    .filter((m) => {
+                      if (!m.user?._id || m.status !== "active") return false;
+                      const matchesDept =
+                        !m.department ||
+                        m.department._id === convertModalTicket.targetDeptId?._id ||
+                        m.department === convertModalTicket.targetDeptId?._id;
+                      if (!matchesDept) return false;
+
+                      // Never allow assigning to Owner or Admins!
+                      if (m.role === "owner" || m.role === "admin") return false;
+                      if (orgOwnerId && (m.user._id === orgOwnerId || (orgOwnerId as any)?._id === m.user._id)) return false;
+
+                      // If caller is owner or admin, cannot assign to self
+                      if (isOwnerOrAdmin && m.user._id === currentUserId) return false;
+
+                      return true;
+                    })
                     .map((m) => (
                       <option key={m._id} value={m.user._id}>
                         {m.user.name} ({m.jobTitle || "Member"})

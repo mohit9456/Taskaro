@@ -117,6 +117,12 @@ interface DepartmentTaskData {
   priority: "low" | "medium" | "high" | "urgent";
   dueDate?: string;
   completedAt?: string;
+  completedBy?: {
+    _id: string;
+    name: string;
+    email?: string;
+    profileImage?: string;
+  } | null;
   estimatedHours: number;
   proofUrl?: string;
   completionNotes?: string;
@@ -185,7 +191,8 @@ export default function TeamContent() {
   } | null>(null);
 
   const [activeTab, setActiveTab] = useState<"departments" | "tasks" | "members">("departments");
-  const [taskViewFilter, setTaskViewFilter] = useState<"all" | "intake" | "my">("all");
+  const [taskViewFilter, setTaskViewFilter] = useState<"all" | "intake" | "my" | "blocked_on_us">("all");
+  const [incomingBlockedTasks, setIncomingBlockedTasks] = useState<DepartmentTaskData[]>([]);
 
   // Zero-toast inline feedback state
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -228,6 +235,8 @@ export default function TeamContent() {
     dueDate: "",
     estimatedHours: 2,
     dependencyTaskId: "",
+    blockedByDeptId: "",
+    blockerReason: "",
   });
 
   const [blockerForm, setBlockerForm] = useState({
@@ -341,6 +350,7 @@ export default function TeamContent() {
       const data = await res.json();
       if (res.ok) {
         setDepartmentTasks(data.tasks || []);
+        setIncomingBlockedTasks(data.incomingBlockedTasks || []);
         setMemberWorkloads(data.memberWorkloads || []);
 
         // Refresh selected task drawer if currently open
@@ -610,6 +620,8 @@ export default function TeamContent() {
           dueDate: "",
           estimatedHours: 2,
           dependencyTaskId: "",
+          blockedByDeptId: "",
+          blockerReason: "",
         });
         await fetchDepartmentTasks(selectedOrgId, selectedDeptFilter);
         setActiveTab("tasks");
@@ -663,9 +675,32 @@ export default function TeamContent() {
   ) => {
     if (!selectedOrgId) return;
 
+    const task = departmentTasks.find((t) => t._id === taskId);
+    if (task) {
+      const isTaskAssignee = task.assignedTo?._id === currentUserId;
+      const isTargetDeptLead =
+        (task.departmentId?.leadId as any)?._id === currentUserId ||
+        task.departmentId?.leadId === currentUserId;
+      const isBlockingDeptLead =
+        task.status === "blocked" &&
+        task.blockedByDeptId &&
+        orgDetails?.departments?.some(
+          (d) =>
+            d._id === task.blockedByDeptId?._id &&
+            ((d.leadId as any)?._id === currentUserId || d.leadId === currentUserId)
+        );
+
+      if (!isOwnerOrAdmin && !isTargetDeptLead && !isTaskAssignee && !isBlockingDeptLead) {
+        setFeedback({
+          type: "error",
+          message: "Only the assigned member, Department Lead, or Admin can update this task's status.",
+        });
+        return;
+      }
+    }
+
     // If changing to blocked, open Blocker modal
     if (newStatus === "blocked") {
-      const task = departmentTasks.find((t) => t._id === taskId);
       if (task) {
         setShowBlockerModal(task);
         setBlockerForm({ blockedByDeptId: "", blockerReason: "" });
@@ -675,7 +710,6 @@ export default function TeamContent() {
 
     // If changing to done, open Proof modal
     if (newStatus === "done") {
-      const task = departmentTasks.find((t) => t._id === taskId);
       if (task) {
         setShowProofModal(task);
         setProofForm({ proofUrl: task.proofUrl || "", completionNotes: task.completionNotes || "" });
@@ -1028,10 +1062,13 @@ export default function TeamContent() {
     );
   }
 
-  // Filter tasks based on sub-nav (All / Intake / My Tasks)
+  // Filter tasks based on sub-nav (All / Intake / My Tasks / Blocked on Us)
   const filteredTasks = departmentTasks.filter((t) => {
     if (taskViewFilter === "intake") return !t.assignedTo;
     if (taskViewFilter === "my") return t.assignedTo?._id === currentUserId;
+    if (taskViewFilter === "blocked_on_us") {
+      return incomingBlockedTasks.some((bt) => bt._id === t._id);
+    }
     return true;
   });
 
@@ -1429,6 +1466,20 @@ export default function TeamContent() {
               >
                 👤 My Tasks ({myTasksCount})
               </button>
+
+              {incomingBlockedTasks.length > 0 && (
+                <button
+                  onClick={() => setTaskViewFilter("blocked_on_us")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    taskViewFilter === "blocked_on_us"
+                      ? "bg-rose-600 text-white shadow-xs font-extrabold"
+                      : "bg-rose-500/15 border border-rose-500/30 text-rose-500"
+                  }`}
+                >
+                  <AlertOctagon className="w-3.5 h-3.5" />
+                  <span>🚨 Blocked on Us ({incomingBlockedTasks.length})</span>
+                </button>
+              )}
             </div>
 
             {/* DEPARTMENT FILTER */}
@@ -1448,6 +1499,69 @@ export default function TeamContent() {
               </select>
             </div>
           </div>
+
+          {/* INCOMING CROSS-DEPARTMENT BLOCKER ALERT */}
+          {incomingBlockedTasks.length > 0 && (
+            <div className="p-4 sm:p-5 rounded-3xl bg-rose-500/10 border border-rose-500/30 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2 text-rose-500 font-extrabold text-sm">
+                  <AlertOctagon className="w-5 h-5 animate-pulse shrink-0" />
+                  <span>
+                    Action Required: {incomingBlockedTasks.length} task(s) in other departments are waiting on your team!
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-(--color-desc)">
+                  Cross-Department Blocker Handshake
+                </span>
+              </div>
+              <p className="text-xs text-(--color-desc)">
+                Team members in other departments cannot proceed until these deliverables or answers are provided.
+              </p>
+              <div className="space-y-2 pt-1">
+                {incomingBlockedTasks.map((bt) => (
+                  <div
+                    key={bt._id}
+                    className="p-3 rounded-2xl bg-(--card-bg) border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="text-[10px] font-bold px-2 py-0.5 rounded text-white"
+                          style={{ backgroundColor: bt.departmentId?.color || "#6366f1" }}
+                        >
+                          From: {bt.departmentId?.name}
+                        </span>
+                        <span className="text-xs font-bold text-(--color-text) truncate">{bt.title}</span>
+                      </div>
+                      <p className="text-xs text-rose-500 font-semibold flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        Reason: <b>{bt.blockerReason || "Waiting on deliverables from your department"}</b>
+                      </p>
+                      <p className="text-[10px] text-(--color-desc)">
+                        Assigned to: {bt.assignedTo?.name || "Unassigned"} · Created by: {bt.createdBy?.name}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleUpdateTaskStatus(bt._id, "todo")}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 transition-all"
+                        title="Clear blocker and notify the other department that work can resume"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Unblock & Resume</span>
+                      </button>
+                      <button
+                        onClick={() => setSelectedTaskDrawer(bt)}
+                        className="px-3 py-1.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs font-bold text-(--color-text) hover:border-(--color-primary) cursor-pointer"
+                      >
+                        Details
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* MEMBER LIVE WORKLOAD STRIP */}
           {memberWorkloads.length > 0 && (
@@ -1505,8 +1619,31 @@ export default function TeamContent() {
               </div>
             ) : (
               filteredTasks.map((t) => {
-                const isTargetDeptLead = t.departmentId?.leadId === currentUserId;
+                const isTargetDeptLead =
+                  (t.departmentId?.leadId as any)?._id === currentUserId ||
+                  t.departmentId?.leadId === currentUserId;
+                const isTaskAssignee = t.assignedTo?._id === currentUserId;
+                const isBlockingDeptLead =
+                  t.status === "blocked" &&
+                  t.blockedByDeptId &&
+                  orgDetails?.departments?.some(
+                    (d) =>
+                      d._id === t.blockedByDeptId?._id &&
+                      ((d.leadId as any)?._id === currentUserId || d.leadId === currentUserId)
+                  );
+                const isBlockedOnMyDept =
+                  t.status === "blocked" &&
+                  t.blockedByDeptId &&
+                  orgDetails?.departments?.some(
+                    (d) =>
+                      d._id === t.blockedByDeptId?._id &&
+                      (d._id === orgDetails?.myDepartmentId ||
+                        (d.leadId as any)?._id === currentUserId ||
+                        d.leadId === currentUserId)
+                  );
                 const canDelegate = isOwnerOrAdmin || isTargetDeptLead;
+                const canUpdateTaskStatus =
+                  isOwnerOrAdmin || isTargetDeptLead || isTaskAssignee || isBlockingDeptLead;
 
                 return (
                   <div
@@ -1551,28 +1688,56 @@ export default function TeamContent() {
                           {t.priority.toUpperCase()}
                         </span>
 
-                        {/* STATUS DROPDOWN (JIRA STYLE - REVERSIBLE ANYTIME) */}
-                        <select
-                          value={t.status}
-                          onChange={(e) => handleUpdateTaskStatus(t._id, e.target.value as any)}
-                          className={`text-[10px] font-extrabold px-2 py-0.5 rounded border focus:outline-hidden cursor-pointer ${
-                            t.status === "done"
-                              ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
+                        {/* STATUS DROPDOWN (JIRA STYLE - STRICTLY RESTRICTED TO ASSIGNEE/LEAD/ADMIN) */}
+                        {canUpdateTaskStatus ? (
+                          <select
+                            value={t.status}
+                            onChange={(e) => handleUpdateTaskStatus(t._id, e.target.value as any)}
+                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded border focus:outline-hidden cursor-pointer ${
+                              t.status === "done"
+                                ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
+                                : t.status === "inprogress"
+                                ? "bg-blue-500/20 text-blue-500 border-blue-500/30"
+                                : t.status === "blocked"
+                                ? "bg-rose-500/20 text-rose-500 border-rose-500/30"
+                                : t.status === "review"
+                                ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                                : "bg-amber-500/20 text-amber-500 border-amber-500/30"
+                            }`}
+                          >
+                            <option value="todo">TODO</option>
+                            <option value="inprogress">IN PROGRESS</option>
+                            <option value="review">REVIEW</option>
+                            <option value="blocked">🚨 BLOCKED</option>
+                            <option value="done">✓ DONE</option>
+                          </select>
+                        ) : (
+                          <span
+                            title={`Assigned to ${t.assignedTo?.name || "team member"}. Only assignee, Department Lead, or Admin can update status.`}
+                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded border cursor-not-allowed select-none opacity-85 flex items-center gap-1 ${
+                              t.status === "done"
+                                ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
+                                : t.status === "inprogress"
+                                ? "bg-blue-500/20 text-blue-500 border-blue-500/30"
+                                : t.status === "blocked"
+                                ? "bg-rose-500/20 text-rose-500 border-rose-500/30"
+                                : t.status === "review"
+                                ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                                : "bg-amber-500/20 text-amber-500 border-amber-500/30"
+                            }`}
+                          >
+                            <Lock className="w-2.5 h-2.5 opacity-60" />
+                            {t.status === "done"
+                              ? "DONE"
                               : t.status === "inprogress"
-                              ? "bg-blue-500/20 text-blue-500 border-blue-500/30"
+                              ? "IN PROGRESS"
                               : t.status === "blocked"
-                              ? "bg-rose-500/20 text-rose-500 border-rose-500/30"
+                              ? "BLOCKED"
                               : t.status === "review"
-                              ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                              : "bg-amber-500/20 text-amber-500 border-amber-500/30"
-                          }`}
-                        >
-                          <option value="todo">TODO</option>
-                          <option value="inprogress">IN PROGRESS</option>
-                          <option value="review">REVIEW</option>
-                          <option value="blocked">🚨 BLOCKED</option>
-                          <option value="done">✓ DONE</option>
-                        </select>
+                              ? "REVIEW"
+                              : "TODO"}
+                          </span>
+                        )}
 
                         {/* UNASSIGNED INTAKE PILL */}
                         {!t.assignedTo && (
@@ -1583,8 +1748,17 @@ export default function TeamContent() {
 
                         {/* BLOCKER BADGE */}
                         {t.status === "blocked" && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-500 flex items-center gap-1">
-                            <AlertOctagon className="w-3 h-3" /> Blocked by: {t.blockedByDeptId?.name || "Another Department"}
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 ${
+                              isBlockedOnMyDept
+                                ? "bg-rose-600 text-white animate-pulse"
+                                : "bg-rose-500/20 text-rose-500"
+                            }`}
+                          >
+                            <AlertOctagon className="w-3 h-3" />
+                            {isBlockedOnMyDept
+                              ? `Action Required: Blocked on Your Dept (${t.blockerReason || "Deliverable needed"})`
+                              : `Blocked by: ${t.blockedByDeptId?.name || "Another Department"}`}
                           </span>
                         )}
 
@@ -1623,9 +1797,11 @@ export default function TeamContent() {
                         {t.dueDate && (
                           <span>Due: <b className="text-(--color-text)">{new Date(t.dueDate).toLocaleDateString()}</b></span>
                         )}
-                        {t.completedAt && (
-                          <span className="text-emerald-500 font-bold">
-                            Completed: {new Date(t.completedAt).toLocaleDateString()}
+                        {t.status === "done" && (
+                          <span className="text-emerald-500 font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Done by <b className="text-(--color-text)">{t.completedBy?.name || t.assignedTo?.name || "Lead"}</b>
+                            {t.completedAt && ` on ${new Date(t.completedAt).toLocaleDateString()}`}
                           </span>
                         )}
                         {t.proofUrl && (
@@ -1647,7 +1823,18 @@ export default function TeamContent() {
                     </div>
 
                     {/* ACTIONS: DELEGATE INTAKE OR OPEN DRAWER */}
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      {isBlockedOnMyDept && (
+                        <button
+                          onClick={() => handleUpdateTaskStatus(t._id, "todo")}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 transition-all"
+                          title="Unblock task for the waiting department"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Unblock Deliverable</span>
+                        </button>
+                      )}
+
                       {!t.assignedTo && canDelegate && (
                         <button
                           onClick={() => {
@@ -1966,10 +2153,18 @@ export default function TeamContent() {
                             .filter((m) => m.user._id && m.status === "active")
                             .filter((m) =>
                               taskForm.departmentId
-                                ? m.department?._id === taskForm.departmentId || !m.department
+                                ? m.department?._id === taskForm.departmentId
                                 : true
                             )
                             .filter((m) => {
+                              // Never allow assigning to Owner or Admins
+                              if (m.role === "owner" || m.role === "admin") return false;
+                              const orgOwnerId =
+                                (orgDetails?.organization?.ownerId as any)?._id ||
+                                orgDetails?.organization?.ownerId;
+                              if (orgOwnerId && (m.user._id === orgOwnerId || (orgOwnerId as any)?._id === m.user._id))
+                                return false;
+
                               // If Owner or Admin, cannot assign to self
                               if (isOwnerOrAdmin && m.user._id === currentUserId) return false;
                               return true;
@@ -2032,25 +2227,77 @@ export default function TeamContent() {
                 </div>
               </div>
 
-              {/* OPTIONAL DEPENDENCY LOCK */}
-              <div>
-                <label className="block text-xs font-bold text-(--color-text) mb-1">
-                  Dependency Lock (Optional)
-                </label>
-                <select
-                  value={taskForm.dependencyTaskId}
-                  onChange={(e) => setTaskForm({ ...taskForm, dependencyTaskId: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text)"
-                >
-                  <option value="">-- No Dependency (Active Immediately) --</option>
-                  {departmentTasks
-                    .filter((t) => t.status !== "done")
-                    .map((t) => (
-                      <option key={t._id} value={t._id}>
-                        Lock until '{t.title}' is completed ({t.departmentId?.name})
-                      </option>
-                    ))}
-                </select>
+              {/* DEPENDENCY OR DEPARTMENT LOCK */}
+              <div className="space-y-2 p-3.5 rounded-2xl bg-(--hover-card-bg)/60 border border-(--color-border)">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-(--color-text)">
+                  <Lock className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Dependency / Department Lock (Optional)</span>
+                </div>
+                <p className="text-[10px] text-(--color-desc)">
+                  Select a department this task is waiting on, or choose an existing task that must finish first.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {/* LOCK ON ANOTHER DEPARTMENT */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-(--color-desc) mb-1">
+                      Lock Waiting on Department
+                    </label>
+                    <select
+                      value={taskForm.blockedByDeptId}
+                      onChange={(e) => setTaskForm({ ...taskForm, blockedByDeptId: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-(--card-bg) border border-(--color-border) text-xs text-(--color-text)"
+                    >
+                      <option value="">-- No Department Blocker --</option>
+                      {((orgDetails?.allDepartments && orgDetails.allDepartments.length > 0)
+                        ? orgDetails.allDepartments
+                        : (orgDetails?.departments || [])
+                      )
+                        .filter((d) => d._id !== taskForm.departmentId)
+                        .map((d) => (
+                          <option key={d._id} value={d._id}>
+                            Blocked by: {d.name} ({d.code})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* LOCK ON SPECIFIC TASK */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-(--color-desc) mb-1">
+                      Lock on Specific Task
+                    </label>
+                    <select
+                      value={taskForm.dependencyTaskId}
+                      onChange={(e) => setTaskForm({ ...taskForm, dependencyTaskId: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-(--card-bg) border border-(--color-border) text-xs text-(--color-text)"
+                    >
+                      <option value="">-- No Task Dependency --</option>
+                      {departmentTasks
+                        .filter((t) => t.status !== "done")
+                        .map((t) => (
+                          <option key={t._id} value={t._id}>
+                            Wait for: '{t.title}' ({t.departmentId?.name})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                {taskForm.blockedByDeptId && (
+                  <div className="pt-1">
+                    <label className="block text-[10px] font-bold text-rose-500 mb-1">
+                      Deliverable needed from department *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Waiting on API spec / Figma designs / Asset exports..."
+                      value={taskForm.blockerReason}
+                      onChange={(e) => setTaskForm({ ...taskForm, blockerReason: e.target.value })}
+                      className="w-full px-3 py-1.5 rounded-xl bg-(--card-bg) border border-rose-500/30 text-xs text-(--color-text)"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -2115,9 +2362,21 @@ export default function TeamContent() {
                     .filter(
                       (m) =>
                         m.department?._id === showDelegateModal.departmentId?._id ||
-                        !m.department ||
-                        isOwnerOrAdmin
+                        (!m.department && isOwnerOrAdmin)
                     )
+                    .filter((m) => {
+                      // Never allow assigning/delegating to Owner or Admins
+                      if (m.role === "owner" || m.role === "admin") return false;
+                      const orgOwnerId =
+                        (orgDetails?.organization?.ownerId as any)?._id ||
+                        orgDetails?.organization?.ownerId;
+                      if (orgOwnerId && (m.user._id === orgOwnerId || (orgOwnerId as any)?._id === m.user._id))
+                        return false;
+
+                      // If Owner or Admin is delegating, cannot assign to self
+                      if (isOwnerOrAdmin && m.user._id === currentUserId) return false;
+                      return true;
+                    })
                     .map((m) => {
                       const mw = memberWorkloads.find((w) => w.userId === m.user._id);
                       return (
@@ -2334,7 +2593,45 @@ export default function TeamContent() {
               <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-(--hover-card-bg)/50 border border-(--color-border) text-xs">
                 <div>
                   <span className="text-(--color-desc) block text-[10px] uppercase font-bold">Status</span>
-                  <span className="font-extrabold text-(--color-text) uppercase">{selectedTaskDrawer.status}</span>
+                  {(() => {
+                    const isDrawerTaskAssignee = selectedTaskDrawer.assignedTo?._id === currentUserId;
+                    const isDrawerDeptLead =
+                      (selectedTaskDrawer.departmentId?.leadId as any)?._id === currentUserId ||
+                      selectedTaskDrawer.departmentId?.leadId === currentUserId;
+                    const canUpdateDrawerStatus = isOwnerOrAdmin || isDrawerDeptLead || isDrawerTaskAssignee;
+
+                    if (canUpdateDrawerStatus) {
+                      return (
+                        <select
+                          value={selectedTaskDrawer.status}
+                          onChange={(e) => handleUpdateTaskStatus(selectedTaskDrawer._id, e.target.value as any)}
+                          className={`mt-1 text-[10px] font-extrabold px-2 py-0.5 rounded border focus:outline-hidden cursor-pointer ${
+                            selectedTaskDrawer.status === "done"
+                              ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
+                              : selectedTaskDrawer.status === "inprogress"
+                              ? "bg-blue-500/20 text-blue-500 border-blue-500/30"
+                              : selectedTaskDrawer.status === "blocked"
+                              ? "bg-rose-500/20 text-rose-500 border-rose-500/30"
+                              : selectedTaskDrawer.status === "review"
+                              ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                              : "bg-amber-500/20 text-amber-500 border-amber-500/30"
+                          }`}
+                        >
+                          <option value="todo">TODO</option>
+                          <option value="inprogress">IN PROGRESS</option>
+                          <option value="review">REVIEW</option>
+                          <option value="blocked">🚨 BLOCKED</option>
+                          <option value="done">✓ DONE</option>
+                        </select>
+                      );
+                    }
+
+                    return (
+                      <span className="font-extrabold text-(--color-text) uppercase block mt-1">
+                        {selectedTaskDrawer.status}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div>
                   <span className="text-(--color-desc) block text-[10px] uppercase font-bold">Priority</span>
@@ -2363,6 +2660,15 @@ export default function TeamContent() {
                     <span className="text-emerald-500 block text-[10px] uppercase font-bold">Completed On</span>
                     <span className="font-bold text-emerald-500">
                       {new Date(selectedTaskDrawer.completedAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+                {selectedTaskDrawer.status === "done" && (
+                  <div>
+                    <span className="text-emerald-500 block text-[10px] uppercase font-bold">Completed By</span>
+                    <span className="font-bold text-emerald-500 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {selectedTaskDrawer.completedBy?.name || selectedTaskDrawer.assignedTo?.name || "Lead"}
                     </span>
                   </div>
                 )}
