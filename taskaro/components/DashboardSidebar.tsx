@@ -28,6 +28,7 @@ import {
   Activity,
   ArrowLeft,
   Globe,
+  Bell,
 } from "lucide-react";
 
 interface NavItemConfig {
@@ -56,6 +57,12 @@ const coreItems: NavItemConfig[] = [
     label: "Calendar",
     href: "/dashboard/calendar",
     icon: Calendar,
+  },
+  {
+    key: "notifications",
+    label: "Notifications",
+    href: "/dashboard/notification",
+    icon: Bell,
   },
 ];
 

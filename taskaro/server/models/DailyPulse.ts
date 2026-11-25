@@ -25,6 +25,12 @@ const DailyPulseSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    yesterdayTasks: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     focusTasks: [
       {
         type: String,
@@ -38,6 +44,11 @@ const DailyPulseSchema = new mongoose.Schema(
     hasBlocker: {
       type: Boolean,
       default: false,
+    },
+    blockedByDepartmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Department",
+      default: null,
     },
     estimatedHours: {
       type: Number,

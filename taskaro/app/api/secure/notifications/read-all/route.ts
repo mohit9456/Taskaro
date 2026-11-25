@@ -1,21 +1,20 @@
+import { NextResponse } from "next/server";
+import { getAuthUser } from "@/server/utils/getAuthUser";
 import { updateNotifcationService } from "@/server/services/notification.service";
 
-export async function PATCH(req) {
+export async function PATCH(req: Request) {
   try {
-    const email = req.headers.get("x-user-email");
-    if (!email) {
-      return Response.json({ error: "Unauthorized user" }, { status: 401 });
-    }
+    const user = await getAuthUser(req);
+    const result = await updateNotifcationService(user._id.toString());
 
-    const notification = await updateNotifcationService(email);
-
-    return new Response(JSON.stringify({ success: true, notification }), {
-      status: 200,
-    });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message || "Something went wrong" }),
-      { status: err.status || 500 },
+    return NextResponse.json(
+      { success: true, notification: result },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed to mark all as read" },
+      { status: err.status || 500 }
     );
   }
 }

@@ -12,6 +12,7 @@ import TeamTicket from "../models/TeamTicket";
 import TeamMessage from "../models/TeamMessage";
 import DailyPulse from "../models/DailyPulse";
 import { sendMailService } from "../utils/mailer";
+import { createNotificationService } from "./notification.service";
 
 function generateSlug(name: string): string {
   const base = name
@@ -848,25 +849,29 @@ export async function createDepartmentTaskService(
 
   // Notifications
   if (assignedToUserId) {
-    try {
-      await Notification.create({
-        userId: new mongoose.Types.ObjectId(assignedToUserId),
-        title: "New Department Task Assigned",
-        message: `You were assigned: '${task.title}'${isLocked ? " (Locked pending dependency)" : ""}`,
+    if (assignedToUserId !== callerUserId) {
+      createNotificationService({
+        userId: assignedToUserId,
+        title: "🎯 New Task Assigned",
+        message: `You were assigned: '${task.title}'${isLocked ? " (Locked pending dependency)" : ""}${task.dueDate ? ` • Due: ${new Date(task.dueDate).toLocaleDateString()}` : ""}`,
+        type: "TASK_ASSIGNED",
+        priority: task.priority === "urgent" ? "urgent" : "medium",
         link: "/dashboard/team",
-      });
-    } catch { }
+        metadata: { taskId: task._id, orgId: data.orgId },
+      }).catch(() => {});
+    }
   } else {
     // Notify target department lead that incoming work has arrived in their intake
-    if (targetDept.leadId) {
-      try {
-        await Notification.create({
-          userId: targetDept.leadId,
-          title: "📥 Incoming Work in Department Intake",
-          message: `A new task '${task.title}' was assigned to ${targetDept.name} for triage and delegation.`,
-          link: "/dashboard/team",
-        });
-      } catch { }
+    if (targetDept.leadId && targetDept.leadId.toString() !== callerUserId) {
+      createNotificationService({
+        userId: targetDept.leadId,
+        title: "📥 Incoming Work in Department Intake",
+        message: `A new task '${task.title}' was routed to ${targetDept.name} intake queue for triage and delegation.`,
+        type: "TASK_ASSIGNED",
+        priority: "medium",
+        link: "/dashboard/team",
+        metadata: { taskId: task._id, orgId: data.orgId },
+      }).catch(() => {});
     }
   }
 
@@ -977,14 +982,17 @@ export async function delegateDepartmentTaskService(
   }
 
   // Notify assignee
-  try {
-    await Notification.create({
-      userId: new mongoose.Types.ObjectId(assignedToUserId),
-      title: "Task Delegated by Lead 🎯",
-      message: `Your Department Lead delegated: '${task.title}' to you.`,
+  if (assignedToUserId !== callerUserId) {
+    createNotificationService({
+      userId: assignedToUserId,
+      title: "🎯 Task Delegated to You",
+      message: `'${task.title}' was delegated to you by Department Lead.${task.dueDate ? ` Due: ${new Date(task.dueDate).toLocaleDateString()}` : ""}`,
+      type: "TASK_ASSIGNED",
+      priority: task.priority === "urgent" ? "urgent" : "medium",
       link: "/dashboard/team",
-    });
-  } catch { }
+      metadata: { taskId: task._id },
+    }).catch(() => {});
+  }
 
   const populated = await Task.findById(taskId)
     .populate("assignedTo", "name email profileImage")
@@ -1187,6 +1195,32 @@ export async function updateDepartmentTaskStatusService(
     if (data.proofUrl) task.proofUrl = data.proofUrl.trim();
     if (data.completionNotes) task.completionNotes = data.completionNotes.trim();
 
+    // Notify task creator (Leader or Admin who created the task)
+    if (task.createdBy && task.createdBy.toString() !== userId) {
+      createNotificationService({
+        userId: task.createdBy,
+        title: "✅ Task Completed!",
+        message: `'${task.title}' was marked Done.${data.proofUrl ? " Deliverable proof attached." : ""}`,
+        type: "TASK_DONE",
+        priority: "medium",
+        link: "/dashboard/team",
+        metadata: { taskId: task._id },
+      }).catch(() => {});
+    }
+
+    // Also notify department lead if not caller and not creator
+    if (dept?.leadId && dept.leadId.toString() !== userId && dept.leadId.toString() !== task.createdBy?.toString()) {
+      createNotificationService({
+        userId: dept.leadId,
+        title: "✅ Team Task Finished",
+        message: `'${task.title}' in ${dept.name} was completed.`,
+        type: "TASK_DONE",
+        priority: "medium",
+        link: "/dashboard/team",
+        metadata: { taskId: task._id },
+      }).catch(() => {});
+    }
+
     // 🔗 Auto-resolve linked ticket if this task originated from a query / ticket!
     if (task.linkedTicketId) {
       await TeamTicket.findByIdAndUpdate(task.linkedTicketId, {
@@ -1203,12 +1237,15 @@ export async function updateDepartmentTaskStatusService(
       try {
         const linkedTicket = await TeamTicket.findById(task.linkedTicketId).lean();
         if (linkedTicket?.createdBy) {
-          await Notification.create({
+          createNotificationService({
             userId: linkedTicket.createdBy,
-            title: "Query / Ticket Resolved! ✅",
+            title: "🎉 Query / Ticket Resolved!",
             message: `Ticket #${linkedTicket.ticketCode} (${linkedTicket.title}) was resolved with proof upon completion of task '${task.title}'.`,
+            type: "TICKET_RESOLVED",
+            priority: "medium",
             link: "/dashboard/team/tickets",
-          });
+            metadata: { ticketId: linkedTicket._id, taskId: task._id },
+          }).catch(() => {});
         }
       } catch { }
     }
@@ -1223,14 +1260,15 @@ export async function updateDepartmentTaskStatusService(
 
       for (const unl of unlocked) {
         if (unl.assignedTo) {
-          try {
-            await Notification.create({
-              userId: unl.assignedTo,
-              title: "Dependency Cleared! 🚀",
-              message: `'${task.title}' was completed. Your task '${unl.title}' is now unlocked.`,
-              link: "/dashboard/team",
-            });
-          } catch { }
+          createNotificationService({
+            userId: unl.assignedTo,
+            title: "🚀 Dependency Cleared!",
+            message: `'${task.title}' was completed. Your task '${unl.title}' is now unlocked.`,
+            type: "TASK_UNBLOCKED",
+            priority: "medium",
+            link: "/dashboard/team",
+            metadata: { taskId: unl._id },
+          }).catch(() => {});
         }
       }
     }
@@ -1260,15 +1298,29 @@ export async function updateDepartmentTaskStatusService(
     if (data.blockedByDeptId) {
       const blockingDept = await Department.findById(data.blockedByDeptId).lean();
       if (blockingDept?.leadId) {
-        try {
-          await Notification.create({
-            userId: blockingDept.leadId,
-            title: "🚨 Blocker Raised on Your Department",
-            message: `Task '${task.title}' is blocked waiting on ${blockingDept.name}. Blocker: ${data.blockerReason || "Action required"}`,
-            link: "/dashboard/team",
-          });
-        } catch { }
+        createNotificationService({
+          userId: blockingDept.leadId,
+          title: "🚨 Blocker Raised on Your Department",
+          message: `Task '${task.title}' (${dept?.name || "Team"}) is blocked waiting on ${blockingDept.name}. Reason: ${data.blockerReason || "Action required"}`,
+          type: "TASK_BLOCKED",
+          priority: "urgent",
+          link: "/dashboard/team",
+          metadata: { taskId: task._id, blockedByDeptId: data.blockedByDeptId },
+        }).catch(() => {});
       }
+    }
+
+    // Also notify department lead if not caller
+    if (dept?.leadId && dept.leadId.toString() !== userId) {
+      createNotificationService({
+        userId: dept.leadId,
+        title: "🛑 Task Flagged as Blocked",
+        message: `'${task.title}' was marked as blocked. Reason: ${data.blockerReason || "Waiting on dependency"}`,
+        type: "TASK_BLOCKED",
+        priority: "high",
+        link: "/dashboard/team",
+        metadata: { taskId: task._id },
+      }).catch(() => {});
     }
   } else if (oldStatus === "blocked") {
     // Blocker resolved / cleared
@@ -1277,14 +1329,15 @@ export async function updateDepartmentTaskStatusService(
     task.isLocked = false;
 
     if (task.assignedTo) {
-      try {
-        await Notification.create({
-          userId: task.assignedTo,
-          title: "🎉 Task Unblocked!",
-          message: `Your task '${task.title}' was unblocked and is ready to work on.`,
-          link: "/dashboard/team",
-        });
-      } catch {}
+      createNotificationService({
+        userId: task.assignedTo,
+        title: "🎉 Task Unblocked!",
+        message: `Your task '${task.title}' was unblocked and is ready to work on.`,
+        type: "TASK_UNBLOCKED",
+        priority: "medium",
+        link: "/dashboard/team",
+        metadata: { taskId: task._id },
+      }).catch(() => {});
     }
   }
 

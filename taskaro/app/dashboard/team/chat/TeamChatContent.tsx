@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -18,7 +18,9 @@ import {
   ChevronLeft,
   Circle,
   Paperclip,
+  Zap,
 } from "lucide-react";
+import { getSocket } from "@/lib/socket";
 
 interface MessageData {
   _id: string;
@@ -41,6 +43,7 @@ interface MessageData {
 export default function TeamChatContent() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
+  const currentUserId = (session?.user as any)?.id;
 
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
@@ -62,6 +65,11 @@ export default function TeamChatContent() {
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
 
+  // WebSocket & Typing state
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [memberSearch, setMemberSearch] = useState("");
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -69,7 +77,7 @@ export default function TeamChatContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // 1. Initial Load
+  // 1. Initial Load (Org, Departments, Members)
   const init = async () => {
     try {
       setLoading(true);
@@ -102,6 +110,7 @@ export default function TeamChatContent() {
     }
   };
 
+  // Fetch initial history for channel
   const fetchMessages = async (
     targetOrgId: string,
     channelType: "department" | "direct" | "ticket",
@@ -135,49 +144,194 @@ export default function TeamChatContent() {
     scrollToBottom();
   }, [messages]);
 
-  // Periodic polling for real-time freshness
+  // ⚡ 2. SOCKET.IO CONNECTION & USER IDENTIFY
   useEffect(() => {
-    if (!orgId) return;
-    const interval = setInterval(() => {
-      fetchMessages(
-        orgId,
-        activeChannelType,
-        activeDepartmentId,
-        activeTicketId,
-        activeRecipient?.user?._id
-      );
-    }, 4000);
+    if (!currentUserId) return;
+    const socket = getSocket();
+    if (!socket) return;
 
-    return () => clearInterval(interval);
-  }, [orgId, activeChannelType, activeDepartmentId, activeTicketId, activeRecipient]);
+    const handleConnect = () => {
+      setSocketConnected(true);
+      socket.emit("identify", { userId: currentUserId });
+    };
+
+    const handleDisconnect = () => {
+      setSocketConnected(false);
+    };
+
+    if (socket.connected) {
+      handleConnect();
+    }
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+    };
+  }, [currentUserId]);
+
+  // ⚡ 3. JOIN ACTIVE CHANNEL ROOM & LISTEN TO LIVE SOCKET EVENTS (Zero Polling!)
+  useEffect(() => {
+    if (!orgId || !currentUserId) return;
+    const socket = getSocket();
+    if (!socket) return;
+
+    const channelPayload = {
+      orgId,
+      channelType: activeChannelType,
+      departmentId: activeDepartmentId,
+      ticketId: activeTicketId,
+      recipientId: activeRecipient?.user?._id,
+      userId: currentUserId,
+    };
+
+    // Join channel room
+    socket.emit("join_channel", channelPayload);
+
+    // Live message listener
+    const handleNewMessage = (newMsg: MessageData) => {
+      const msgDeptId = (newMsg as any).departmentId?._id || (newMsg as any).departmentId;
+      const msgTicketId = (newMsg as any).ticketId?._id || (newMsg as any).ticketId;
+      const msgSenderId = newMsg.senderId?._id || (newMsg.senderId as any);
+      const msgRecipientId = newMsg.recipientId?._id || (newMsg.recipientId as any);
+
+      const isDept =
+        activeChannelType === "department" &&
+        activeDepartmentId &&
+        msgDeptId === activeDepartmentId;
+
+      const isTicket =
+        activeChannelType === "ticket" &&
+        activeTicketId &&
+        msgTicketId === activeTicketId;
+
+      const isDirect =
+        activeChannelType === "direct" &&
+        activeRecipient?.user?._id &&
+        ((msgSenderId === activeRecipient.user._id && msgRecipientId === currentUserId) ||
+          (msgSenderId === currentUserId && msgRecipientId === activeRecipient.user._id));
+
+      if (isDept || isTicket || isDirect) {
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === newMsg._id)) return prev;
+          return [...prev, newMsg];
+        });
+      }
+    };
+
+    // Live typing listener
+    const handleUserTyping = (data: { userName: string; userId: string; room?: string }) => {
+      if (data.userId !== currentUserId && data.userName) {
+        setTypingUsers((prev) => {
+          if (prev.includes(data.userName)) return prev;
+          return [...prev, data.userName];
+        });
+      }
+    };
+
+    const handleUserStopTyping = (data: { userId: string }) => {
+      if (data.userId !== currentUserId) {
+        setTypingUsers([]);
+      }
+    };
+
+    socket.on("new_message", handleNewMessage);
+    socket.on("user_typing", handleUserTyping);
+    socket.on("user_stop_typing", handleUserStopTyping);
+
+    return () => {
+      socket.emit("leave_channel", channelPayload);
+      socket.off("new_message", handleNewMessage);
+      socket.off("user_typing", handleUserTyping);
+      socket.off("user_stop_typing", handleUserStopTyping);
+      setTypingUsers([]);
+    };
+  }, [
+    orgId,
+    activeChannelType,
+    activeDepartmentId,
+    activeTicketId,
+    activeRecipient,
+    currentUserId,
+  ]);
 
   // Switch to Department Channel
   const handleSelectDepartment = (dept: any) => {
+    if (activeDepartmentId === dept._id && activeChannelType === "department") return;
     setActiveChannelType("department");
     setActiveDepartmentId(dept._id);
     setActiveRecipient(null);
     setActiveTicketId(null);
+    setMessages([]);
     if (orgId) fetchMessages(orgId, "department", dept._id);
   };
 
   // Switch to Direct 1-on-1 Message
   const handleSelectMember = (member: any) => {
+    if (activeRecipient?.user?._id === member.user?._id && activeChannelType === "direct") return;
     setActiveChannelType("direct");
     setActiveRecipient(member);
     setActiveDepartmentId(null);
     setActiveTicketId(null);
-    if (orgId && member.user?._id) fetchMessages(orgId, "direct", undefined, undefined, member.user._id);
+    setMessages([]);
+    if (orgId && member.user?._id) {
+      fetchMessages(orgId, "direct", undefined, undefined, member.user._id);
+    }
   };
 
-  // Send Message
+  // Live Typing notification
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    const socket = getSocket();
+    if (!socket || !socket.connected || !currentUserId) return;
+
+    const channelData = {
+      channelType: activeChannelType,
+      departmentId: activeDepartmentId,
+      ticketId: activeTicketId,
+      recipientId: activeRecipient?.user?._id,
+      userId: currentUserId,
+      userName: session?.user?.name || "Colleague",
+    };
+
+    socket.emit("typing", channelData);
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stop_typing", channelData);
+    }, 1500);
+  };
+
+  // ⚡ Send Message via Socket (with automatic REST API fallback)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !orgId || sending) return;
+    if (!inputText.trim() || !orgId || sending || !currentUserId) return;
+
+    const content = inputText.trim();
+    setInputText("");
+
+    const socket = getSocket();
+    const channelData = {
+      channelType: activeChannelType,
+      departmentId: activeDepartmentId,
+      ticketId: activeTicketId,
+      recipientId: activeRecipient?.user?._id,
+      userId: currentUserId,
+    };
+
+    if (socket && socket.connected) {
+      socket.emit("stop_typing", channelData);
+    }
 
     const payload: any = {
       orgId,
       channelType: activeChannelType,
-      content: inputText.trim(),
+      senderId: currentUserId,
+      content,
     };
 
     if (activeChannelType === "department") payload.departmentId = activeDepartmentId;
@@ -186,15 +340,31 @@ export default function TeamChatContent() {
 
     try {
       setSending(true);
-      setInputText("");
-      const res = await fetch("/api/secure/team/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (res.ok && data.message) {
-        setMessages((prev) => [...prev, data.message]);
+
+      // 1. Try real-time Socket emission first
+      if (socket && socket.connected) {
+        socket.emit("send_message", payload, (res: any) => {
+          if (res && res.success && res.message) {
+            setMessages((prev) => {
+              if (prev.some((m) => m._id === res.message._id)) return prev;
+              return [...prev, res.message];
+            });
+          }
+        });
+      } else {
+        // 2. Fallback to Next.js REST API if socket is disconnected
+        const res = await fetch("/api/secure/team/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok && data.message) {
+          setMessages((prev) => {
+            if (prev.some((m) => m._id === data.message._id)) return prev;
+            return [...prev, data.message];
+          });
+        }
       }
     } catch {
       console.error("Error sending message.");
@@ -204,7 +374,6 @@ export default function TeamChatContent() {
   };
 
   const activeDepartment = departments.find((d) => d._id === activeDepartmentId);
-  const currentUserId = (session?.user as any)?.id;
 
   if (loading) {
     return (
@@ -244,8 +413,19 @@ export default function TeamChatContent() {
               <MessageSquare className="w-4 h-4 text-indigo-500" />
               <span>Team Discussions</span>
             </h2>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center gap-1">
-              <Circle className="w-2 h-2 fill-emerald-500" /> LIVE
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                socketConnected
+                  ? "bg-emerald-500/10 text-emerald-500"
+                  : "bg-amber-500/10 text-amber-500"
+              }`}
+            >
+              <Circle
+                className={`w-2 h-2 ${
+                  socketConnected ? "fill-emerald-500" : "fill-amber-500 animate-pulse"
+                }`}
+              />
+              {socketConnected ? "SOCKET LIVE" : "CONNECTING"}
             </span>
           </div>
 
@@ -269,9 +449,7 @@ export default function TeamChatContent() {
               <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-(--color-desc)">
                 Active Ticket Huddle
               </p>
-              <button
-                className="w-full px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 flex items-center gap-2 text-left"
-              >
+              <button className="w-full px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 flex items-center gap-2 text-left">
                 <Ticket className="w-4 h-4 shrink-0" />
                 <span className="truncate">Ticket Discussion Room</span>
               </button>
@@ -405,6 +583,19 @@ export default function TeamChatContent() {
               </>
             )}
           </div>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 ${
+                socketConnected
+                  ? "bg-emerald-500/10 text-emerald-500"
+                  : "bg-amber-500/10 text-amber-500"
+              }`}
+            >
+              <Zap className={`w-3 h-3 ${socketConnected ? "text-emerald-500" : "text-amber-500"}`} />
+              {socketConnected ? "REAL-TIME SOCKET" : "HTTP FALLBACK"}
+            </span>
+          </div>
         </div>
 
         {/* MESSAGES THREAD */}
@@ -457,6 +648,16 @@ export default function TeamChatContent() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* TYPING INDICATOR */}
+        {typingUsers.length > 0 && (
+          <div className="px-4 py-1 text-[11px] text-indigo-500 font-semibold flex items-center gap-1.5 animate-pulse bg-(--card-bg)/50 border-t border-(--color-border)">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+            <span>
+              {typingUsers.join(", ")} {typingUsers.length === 1 ? "is" : "are"} typing...
+            </span>
+          </div>
+        )}
+
         {/* MESSAGE COMPOSER */}
         <form onSubmit={handleSendMessage} className="p-3 sm:p-4 bg-(--card-bg) border-t border-(--color-border)">
           <div className="flex items-center gap-2">
@@ -468,7 +669,7 @@ export default function TeamChatContent() {
                   : activeRecipient?.user?.name || "colleague"
               }...`}
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={handleInputChange}
               className="flex-1 px-4 py-2.5 rounded-xl bg-(--hover-card-bg) border border-(--color-border) text-xs text-(--color-text) focus:outline-hidden"
             />
 

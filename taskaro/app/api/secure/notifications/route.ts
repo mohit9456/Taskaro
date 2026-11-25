@@ -1,21 +1,45 @@
-import { getNotificationService } from "@/server/services/notification.service";
+import { NextResponse } from "next/server";
+import { getAuthUser } from "@/server/utils/getAuthUser";
+import {
+  getNotificationService,
+  updateNotifcationService,
+} from "@/server/services/notification.service";
 
-export async function GET(req) {
+export async function GET(req: Request) {
   try {
-    const email = req.headers.get("x-user-email");
-    if (!email) {
-      return Response.json({ error: "Unauthorized user" }, { status: 401 });
-    }
+    const user = await getAuthUser(req);
+    const result = await getNotificationService(user._id.toString());
 
-    const notification = await getNotificationService(email);
+    return NextResponse.json(
+      {
+        success: true,
+        notification: result.notifications,
+        unreadCount: result.unreadCount,
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed to fetch notifications" },
+      { status: err.status || 500 }
+    );
+  }
+}
 
-    return new Response(JSON.stringify({ success: true, notification }), {
-      status: 200,
-    });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message || "Something went wrong" }),
-      { status: err.status || 500 },
+export async function PATCH(req: Request) {
+  try {
+    const user = await getAuthUser(req);
+    const body = await req.json().catch(() => ({}));
+    const result = await updateNotifcationService(
+      user._id.toString(),
+      body.notificationId
+    );
+
+    return NextResponse.json({ success: true, result }, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed to update notification" },
+      { status: err.status || 500 }
     );
   }
 }

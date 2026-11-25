@@ -4,6 +4,7 @@ import TeamTicket from "../models/TeamTicket";
 import Department from "../models/Department";
 import OrgMember from "../models/OrgMember";
 import User from "../models/User";
+import { createNotificationService } from "./notification.service";
 
 /**
  * Calculate SLA deadline from hours
@@ -75,6 +76,19 @@ export async function createTicketService(
     tags: data.tags || [],
     attachments: data.attachments || [],
   });
+
+  // Notify target department lead
+  if (targetDept.leadId && targetDept.leadId.toString() !== userId) {
+    createNotificationService({
+      userId: targetDept.leadId,
+      title: isUrgent ? "🚨 Urgent Blocker Query Raised" : "🎫 New Cross-Department Query",
+      message: `Ticket #${ticketCode}: '${data.title}' was raised by ${sourceDept.name}. SLA: ${slaHours}h`,
+      type: "TICKET_RAISED",
+      priority: isUrgent ? "urgent" : "medium",
+      link: "/dashboard/team/tickets",
+      metadata: { ticketId: ticket._id, orgId: data.orgId },
+    }).catch(() => {});
+  }
 
   return {
     success: true,
@@ -177,6 +191,19 @@ export async function updateTicketService(
       ticket.resolvedBy = new mongoose.Types.ObjectId(userId);
       if (data.resolutionSummary) ticket.resolutionSummary = data.resolutionSummary;
       ticket.isEscalated = false;
+
+      // Notify ticket creator that their query has been resolved
+      if (ticket.createdBy && ticket.createdBy.toString() !== userId) {
+        createNotificationService({
+          userId: ticket.createdBy,
+          title: "🎉 Query Resolved!",
+          message: `Your query #${ticket.ticketCode} ('${ticket.title}') was marked as resolved!`,
+          type: "TICKET_RESOLVED",
+          priority: "medium",
+          link: "/dashboard/team/tickets",
+          metadata: { ticketId: ticket._id },
+        }).catch(() => {});
+      }
     } else if (data.status === "escalated") {
       ticket.isEscalated = true;
       ticket.escalatedAt = new Date();
@@ -218,6 +245,29 @@ export async function checkAndEscalateBreachedTicketsService(orgId: string) {
   await connectToDatabase();
 
   const now = new Date();
+
+  // Find overdue tickets to notify their target department leads before updating
+  const overdueTickets = await TeamTicket.find({
+    orgId: new mongoose.Types.ObjectId(orgId),
+    slaDeadline: { $lt: now },
+    status: { $in: ["open", "in_progress"] },
+    isEscalated: false,
+  }).populate("targetDeptId", "name leadId").lean();
+
+  for (const ot of overdueTickets) {
+    if (ot.targetDeptId?.leadId) {
+      createNotificationService({
+        userId: ot.targetDeptId.leadId,
+        title: "🚨 SLA Deadline Breached!",
+        message: `Ticket #${ot.ticketCode} ('${ot.title}') has exceeded its resolution SLA target and is escalated!`,
+        type: "SLA_BREACHED",
+        priority: "urgent",
+        link: "/dashboard/team/tickets",
+        metadata: { ticketId: ot._id },
+      }).catch(() => {});
+    }
+  }
+
   const breachedTickets = await TeamTicket.updateMany(
     {
       orgId: new mongoose.Types.ObjectId(orgId),
@@ -315,23 +365,38 @@ export async function convertTicketToTaskService(
 
   // If assignedTo, notify member; if unassigned, notify target dept lead
   if (data?.assignedTo) {
-    try {
-      await Notification.create({
-        userId: new mongoose.Types.ObjectId(data.assignedTo),
-        title: "Ticket Converted to Task 🎫",
-        message: `Ticket #${ticket.ticketCode} was converted into task '${task.title}' and assigned to you.`,
-        link: "/dashboard/team",
-      });
-    } catch {}
+    createNotificationService({
+      userId: new mongoose.Types.ObjectId(data.assignedTo),
+      title: "🎯 Query Assigned to You as Task",
+      message: `Ticket #${ticket.ticketCode} was scheduled as task '${task.title}' and assigned to you.`,
+      type: "TASK_ASSIGNED",
+      priority: "medium",
+      link: "/dashboard/team",
+      metadata: { taskId: task._id, ticketId: ticket._id },
+    }).catch(() => {});
   } else if (ticket.targetDeptId.leadId) {
-    try {
-      await Notification.create({
-        userId: ticket.targetDeptId.leadId,
-        title: "📥 Converted Ticket in Department Intake",
-        message: `Ticket #${ticket.ticketCode} was converted to a task in ${ticket.targetDeptId.name}'s intake queue.`,
-        link: "/dashboard/team",
-      });
-    } catch {}
+    createNotificationService({
+      userId: ticket.targetDeptId.leadId,
+      title: "📥 Converted Ticket in Department Intake",
+      message: `Ticket #${ticket.ticketCode} was converted to a task in ${ticket.targetDeptId.name}'s intake queue.`,
+      type: "TASK_ASSIGNED",
+      priority: "medium",
+      link: "/dashboard/team",
+      metadata: { taskId: task._id, ticketId: ticket._id },
+    }).catch(() => {});
+  }
+
+  // Notify ticket creator that their query has been scheduled
+  if (ticket.createdBy && ticket.createdBy.toString() !== userId) {
+    createNotificationService({
+      userId: ticket.createdBy,
+      title: "⚡ Query Scheduled as Task",
+      message: `Your ticket #${ticket.ticketCode} is now assigned and scheduled with SLA timeline.`,
+      type: "TICKET_ASSIGNED",
+      priority: "medium",
+      link: "/dashboard/team/tickets",
+      metadata: { ticketId: ticket._id },
+    }).catch(() => {});
   }
 
   return {

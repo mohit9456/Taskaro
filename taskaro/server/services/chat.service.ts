@@ -51,6 +51,16 @@ export async function sendTeamMessageService(
     .populate("recipientId", "name email profileImage role")
     .lean();
 
+  // ⚡ Non-blocking broadcast to Socket.io Server for instant real-time sync
+  try {
+    const socketServerUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:4000";
+    fetch(`${socketServerUrl}/api/broadcast-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: populated }),
+    }).catch(() => {});
+  } catch {}
+
   return {
     success: true,
     message: populated,

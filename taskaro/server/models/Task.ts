@@ -38,6 +38,11 @@ const TaskSchema = new mongoose.Schema(
       default: null,
     },
 
+    lastOverdueNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
